@@ -1,5 +1,5 @@
 import { ActiveTab } from "../types";
-import { Sparkles, Heart, HelpCircle, Calendar, BookOpen, Menu, X, Sliders } from "lucide-react";
+import { Sparkles, Heart, HelpCircle, Calendar, BookOpen, Menu, X, Sliders, Video } from "lucide-react";
 import { useState, useEffect } from "react";
 import { IMAGES, CLINIC_INFO } from "../data";
 import { getClinicInfoFromDb } from "../lib/firebaseService";
@@ -53,6 +53,7 @@ export default function AestheticHeader({ activeTab, setActiveTab, logoSrc, clin
   const navItems = [
     { id: "home", label: "A Clínica", icon: Heart },
     { id: "approaches", label: "Abordagens", icon: HelpCircle },
+    { id: "online", label: "Consulta Online", icon: Video },
     { id: "booking", label: "Agendar Consulta", icon: Calendar },
   ];
 

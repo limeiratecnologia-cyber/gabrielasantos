@@ -1,12 +1,18 @@
 import { useState, useEffect, FormEvent } from "react";
-import { Booking } from "../types";
+import { Booking, Patient, ActiveTab } from "../types";
 import { APPROACHES } from "../data";
-import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock } from "lucide-react";
-import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb } from "../lib/firebaseService";
+import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock, Video, Copy, ClipboardCheck } from "lucide-react";
+import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb, savePatientToDb } from "../lib/firebaseService";
 
-export default function BookingSection() {
+interface BookingSectionProps {
+  setActiveTab?: (tab: ActiveTab) => void;
+}
+
+export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [step, setStep] = useState(1);
+  const [lastBooking, setLastBooking] = useState<Booking | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   const [approaches, setApproaches] = useState<typeof APPROACHES>(APPROACHES);
 
@@ -104,6 +110,8 @@ export default function BookingSection() {
       return;
     }
 
+    const generatedRoomCode = "SRM-" + Math.floor(1000 + Math.random() * 9000);
+
     const newBooking: Booking = {
       id: `booking-${Date.now()}`,
       clientName,
@@ -113,16 +121,37 @@ export default function BookingSection() {
       date: formattedSelectedDate,
       timeSlot,
       notes,
-      status: "scheduled"
+      status: "scheduled",
+      roomCode: generatedRoomCode
     };
+
+    // Register patient in patient database
+    const patientId = clientEmail.trim().toLowerCase();
+    const newPatient: Patient = {
+      id: patientId,
+      name: clientName.trim(),
+      email: clientEmail.trim(),
+      phone: clientPhone.trim(),
+      createdAt: new Date().toLocaleDateString("pt-BR")
+    };
+
+    savePatientToDb(newPatient)
+      .then(() => {
+        console.log("Paciente registrado/atualizado com sucesso no banco de dados.");
+      })
+      .catch((err) => {
+        console.error("Erro ao registrar paciente no banco de dados:", err);
+      });
 
     saveBookingToDb(newBooking).then(() => {
       const updated = [newBooking, ...bookings];
       setBookings(updated);
+      setLastBooking(newBooking);
     }).catch((err) => {
       console.error("Erro ao salvar agendamento no Firestore:", err);
       const updated = [newBooking, ...bookings];
       setBookings(updated);
+      setLastBooking(newBooking);
     });
 
     // Reset Form
@@ -137,10 +166,10 @@ export default function BookingSection() {
     setSuccessMsg("Agendamento prévio solicitado com sucesso!");
     setStep(1);
 
-    // Auto clear success message after 6 seconds
+    // Auto clear success message after 10 seconds
     setTimeout(() => {
       setSuccessMsg("");
-    }, 6000);
+    }, 10000);
   };
 
   const handleCancelBooking = (id: string) => {
@@ -176,14 +205,68 @@ export default function BookingSection() {
 
           {/* Alert Success */}
           {successMsg && (
-            <div className="bg-purple-50 text-purple-950 border border-purple-100 rounded-2xl p-5 mb-6 flex gap-3 items-start animate-fade-in">
-              <CheckCircle className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
-              <div className="text-xs sm:text-sm font-sans space-y-1">
-                <p className="font-bold text-purple-900">{successMsg}</p>
-                <p className="text-slate-600 leading-relaxed text-xs">
-                  Enviamos um e-mail de simulação para você. Entraremos em contato via WhatsApp nas próximas 2 horas comerciais para confirmar sua sessão.
-                </p>
+            <div className="bg-purple-50 text-purple-950 border border-purple-100 rounded-3xl p-6 mb-6 space-y-4 animate-fade-in shadow-sm">
+              <div className="flex gap-3 items-start">
+                <CheckCircle className="w-5.5 h-5.5 text-purple-600 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm font-sans space-y-1 flex-1">
+                  <p className="font-bold text-purple-900 text-base">{successMsg}</p>
+                  <p className="text-slate-600 leading-relaxed text-xs">
+                    Entraremos em contato via WhatsApp nas próximas 2 horas comerciais para confirmar sua sessão.
+                  </p>
+                </div>
               </div>
+
+              {lastBooking?.roomCode && (
+                <div className="bg-white rounded-2xl p-4 border border-purple-100 space-y-3">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans block">
+                        CÓDIGO DE CONSULTA VÍDEO ONLINE
+                      </span>
+                      <span className="font-mono font-bold text-lg text-purple-800 tracking-wider">
+                        {lastBooking.roomCode}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(lastBooking.roomCode!);
+                          setCopiedCode(true);
+                          setTimeout(() => setCopiedCode(false), 2000);
+                        }}
+                        className="bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-sans font-bold px-3 py-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer border border-slate-100 flex-1 sm:flex-none"
+                      >
+                        {copiedCode ? (
+                          <>
+                            <ClipboardCheck className="w-3.5 h-3.5 text-green-600" />
+                            Copiado!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-slate-500" />
+                            Copiar Código
+                          </>
+                        )}
+                      </button>
+                      
+                      {setActiveTab && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("online")}
+                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-sans font-bold px-3 py-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-none"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          Acessar Sala
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-sans leading-relaxed">
+                    💡 <strong>Como funciona?</strong> Guarde este código. No dia e horário da consulta agendada, acesse a aba <strong>Consulta Online</strong> no menu superior, insira o código acima e ative sua chamada de vídeo instantaneamente.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Booking, Approach, ActiveTab } from "../types";
+import { Booking, Approach, ActiveTab, Patient, ClinicalEvolution } from "../types";
 import { CLINIC_INFO, APPROACHES, IMAGES } from "../data";
 import { 
   getBookingsFromDb, 
@@ -9,24 +9,30 @@ import {
   saveClinicInfoToDb, 
   getApproachesFromDb, 
   saveApproachToDb, 
-  deleteApproachFromDb 
+  deleteApproachFromDb,
+  getPatientsFromDb,
+  savePatientToDb,
+  deletePatientFromDb,
+  getEvolutionsFromDb,
+  saveEvolutionToDb,
+  deleteEvolutionFromDb
 } from "../lib/firebaseService";
 import { 
   Lock, Unlock, Calendar, FileText, Check, X, Trash2, 
   Plus, Edit3, Save, Phone, Mail, MapPin, Clock, Award, 
   HelpCircle, CheckCircle, RefreshCw, LogOut, ArrowRight, ClipboardList, Upload,
-  ChevronLeft, ChevronRight, Globe
+  ChevronLeft, ChevronRight, Globe, Users, Search, PlusCircle, Clipboard, Video
 } from "lucide-react";
 
 interface AdminSectionProps {
-  setActiveTab?: (tab: ActiveTab) => void;
+ setActiveTab?: (tab: ActiveTab) => void;
 }
 
 export default function AdminSection({ setActiveTab }: AdminSectionProps) {
   const [password, setPassword] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [adminTab, setAdminTab] = useState<"agenda" | "website" | "approaches">("agenda");
+  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "website" | "approaches">("agenda");
 
   // Authorized state persistence during session
   useEffect(() => {
@@ -161,6 +167,18 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
           Agenda e Marcações
         </button>
         <button
+          onClick={() => setAdminTab("patients")}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
+            adminTab === "patients"
+              ? "border-purple-600 text-purple-700 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+          id="tab-admin-patients"
+        >
+          <Users className="w-4.5 h-4.5" />
+          Pacientes e Prontuários
+        </button>
+        <button
           onClick={() => setAdminTab("website")}
           className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
             adminTab === "website"
@@ -189,6 +207,7 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
       {/* Tab Contents */}
       <div className="animate-fade-in">
         {adminTab === "agenda" && <AdminAgendaTab />}
+        {adminTab === "patients" && <AdminPatientsTab />}
         {adminTab === "website" && <AdminWebsiteTab />}
         {adminTab === "approaches" && <AdminApproachesTab />}
       </div>
@@ -798,6 +817,12 @@ function AdminAgendaTab() {
                     </td>
                     <td className="p-4">
                       <div className="font-bold text-slate-800">{b.clientName}</div>
+                      {b.roomCode && (
+                        <div className="inline-flex items-center gap-1 mt-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-mono font-bold text-[10px] border border-purple-100">
+                          <Video className="w-3 h-3 text-purple-500" />
+                          SALA: {b.roomCode}
+                        </div>
+                      )}
                       {b.notes && (
                         <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={b.notes}>
                           Obs: {b.notes}
@@ -880,6 +905,622 @@ function AdminAgendaTab() {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   SUB-COMPONENT: ADMIN PATIENTS TAB (CLINICAL CHART & EVOLUTIONS)
+   ========================================================================== */
+function AdminPatientsTab() {
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [evolutions, setEvolutions] = useState<ClinicalEvolution[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Patient manual creation & edit states
+  const [showPatientForm, setShowPatientForm] = useState(false);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formPhone, setFormPhone] = useState("");
+
+  // Evolution notes states
+  const [showEvolutionForm, setShowEvolutionForm] = useState(false);
+  const [editingEvolution, setEditingEvolution] = useState<ClinicalEvolution | null>(null);
+  const [formDate, setFormDate] = useState(new Date().toISOString().split("T")[0]);
+  const [formText, setFormText] = useState("");
+
+  const [savingState, setSavingState] = useState(false);
+
+  useEffect(() => {
+    fetchClinicalData();
+  }, []);
+
+  const fetchClinicalData = async () => {
+    setIsLoading(true);
+    try {
+      const pData = await getPatientsFromDb();
+      const eData = await getEvolutionsFromDb();
+      setPatients(pData);
+      setEvolutions(eData);
+    } catch (err) {
+      console.error("Erro ao carregar prontuários do Firestore:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle manual patient upsert
+  const handleSavePatient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName.trim() || !formEmail.trim() || !formPhone.trim()) {
+      alert("Por favor, preencha todos os campos cadastrais.");
+      return;
+    }
+
+    setSavingState(true);
+    const targetId = editingPatient ? editingPatient.id : formEmail.trim().toLowerCase();
+    const newPatient: Patient = {
+      id: targetId,
+      name: formName.trim(),
+      email: formEmail.trim().toLowerCase(),
+      phone: formPhone.trim(),
+      createdAt: editingPatient ? editingPatient.createdAt : new Date().toLocaleDateString("pt-BR")
+    };
+
+    try {
+      await savePatientToDb(newPatient);
+      // Sync local list
+      await fetchClinicalData();
+      
+      // Reset form
+      setFormName("");
+      setFormEmail("");
+      setFormPhone("");
+      setShowPatientForm(false);
+      setEditingPatient(null);
+
+      // If we are editing the currently selected patient, update its header info
+      if (selectedPatient && selectedPatient.id === targetId) {
+        setSelectedPatient(newPatient);
+      }
+    } catch (err) {
+      console.error("Erro ao gravar cadastro do paciente:", err);
+      alert("Ocorreu um erro ao salvar o prontuário. Tente novamente.");
+    } finally {
+      setSavingState(false);
+    }
+  };
+
+  const handleEditPatientInit = (p: Patient) => {
+    setEditingPatient(p);
+    setFormName(p.name);
+    setFormEmail(p.email);
+    setFormPhone(p.phone);
+    setShowPatientForm(true);
+  };
+
+  const handleDeletePatient = async (pId: string) => {
+    if (confirm("⚠️ ATENÇÃO: Deseja realmente excluir este paciente de forma permanente? Esta ação apagará todos os seus prontuários e evoluções clínicas do banco de dados, sem possibilidade de recuperação!")) {
+      try {
+        await deletePatientFromDb(pId);
+        
+        // Clean related evolutions in cascade
+        const related = evolutions.filter((e) => e.patientId === pId);
+        for (const ev of related) {
+          await deleteEvolutionFromDb(ev.id);
+        }
+
+        if (selectedPatient?.id === pId) {
+          setSelectedPatient(null);
+        }
+
+        await fetchClinicalData();
+      } catch (err) {
+        console.error("Erro ao excluir paciente:", err);
+      }
+    }
+  };
+
+  // Handle clinical evolution notes upsert
+  const handleSaveEvolution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPatient) return;
+    if (!formText.trim()) {
+      alert("Por favor, digite os apontamentos de evolução clínica.");
+      return;
+    }
+
+    setSavingState(true);
+    
+    // Split dates correctly to prevent timezone conversion shifts
+    const parts = formDate.split("-");
+    const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : new Date().toLocaleDateString("pt-BR");
+
+    const newEvolution: ClinicalEvolution = {
+      id: editingEvolution ? editingEvolution.id : `ev-${Date.now()}`,
+      patientId: selectedPatient.id,
+      date: formattedDate,
+      text: formText.trim(),
+      createdAt: editingEvolution ? editingEvolution.createdAt : new Date().toISOString()
+    };
+
+    try {
+      await saveEvolutionToDb(newEvolution);
+      await fetchClinicalData();
+
+      // Reset form
+      setFormText("");
+      setFormDate(new Date().toISOString().split("T")[0]);
+      setShowEvolutionForm(false);
+      setEditingEvolution(null);
+    } catch (err) {
+      console.error("Erro ao salvar evolução clínica:", err);
+      alert("Falha ao salvar a evolução terapêutica.");
+    } finally {
+      setSavingState(false);
+    }
+  };
+
+  const handleEditEvolutionInit = (ev: ClinicalEvolution) => {
+    setEditingEvolution(ev);
+    setFormText(ev.text);
+    
+    // Convert date back to YYYY-MM-DD for form date-picker
+    const dateParts = ev.date.split("/");
+    if (dateParts.length === 3) {
+      const formatted = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      setFormDate(formatted);
+    }
+    setShowEvolutionForm(true);
+  };
+
+  const handleDeleteEvolution = async (evId: string) => {
+    if (confirm("Deseja realmente remover permanentemente este registro de evolução clínica?")) {
+      try {
+        await deleteEvolutionFromDb(evId);
+        await fetchClinicalData();
+      } catch (err) {
+        console.error("Erro ao remover registro:", err);
+      }
+    }
+  };
+
+  // Filters
+  const filteredPatients = patients.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.phone.includes(searchQuery)
+  );
+
+  const selectedPatientEvs = evolutions
+    .filter((e) => e.patientId === selectedPatient?.id)
+    .sort((a, b) => new Date(b.createdAt || "").getTime() - new Date(a.createdAt || "").getTime());
+
+  if (isLoading) {
+    return (
+      <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
+        <RefreshCw className="w-8 h-8 animate-spin text-purple-600" />
+        <span className="font-medium text-xs">Sincronizando prontuários médicos...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-6 space-y-6">
+      
+      {/* Upper overview stats bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center gap-4 shadow-sm">
+          <div className="bg-purple-50 text-purple-600 rounded-xl p-3">
+            <Users className="w-6 h-6" />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total de Pacientes</span>
+            <span className="text-2xl font-black text-slate-800">{patients.length}</span>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center gap-4 shadow-sm">
+          <div className="bg-indigo-50 text-indigo-600 rounded-xl p-3">
+            <ClipboardList className="w-6 h-6" />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Notas Clínicas</span>
+            <span className="text-2xl font-black text-slate-800">{evolutions.length}</span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center gap-4 shadow-sm">
+          <div className="bg-emerald-50 text-emerald-600 rounded-xl p-3">
+            <CheckCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Ativos em Terapia</span>
+            <span className="text-2xl font-black text-slate-800">{patients.filter(p => p.createdAt).length}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        {/* Left Column: Patient List (6 cols if patient selected, 12 if none) */}
+        <div className={`${selectedPatient ? "lg:col-span-5" : "lg:col-span-12"} space-y-4`}>
+          <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-lg">Base de Pacientes</h3>
+                <p className="text-xs text-slate-500">Prontuários e fichas de evolução de pacientes ativos.</p>
+              </div>
+
+              {!showPatientForm && (
+                <button
+                  onClick={() => {
+                    setEditingPatient(null);
+                    setFormName("");
+                    setFormEmail("");
+                    setFormPhone("");
+                    setShowPatientForm(true);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-purple-600/10"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Novo Paciente
+                </button>
+              )}
+            </div>
+
+            {/* Manual patient upsert form */}
+            {showPatientForm && (
+              <form onSubmit={handleSavePatient} className="bg-slate-50 rounded-2xl p-4 border border-slate-150 space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-purple-900 uppercase tracking-wider">
+                    {editingPatient ? "Editar Cadastro de Paciente" : "Adicionar Paciente Manualmente"}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPatientForm(false);
+                      setEditingPatient(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Nome Completo</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: João da Silva"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">E-mail</label>
+                    <input
+                      type="email"
+                      placeholder="joao@gmail.com"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition"
+                      required
+                      disabled={!!editingPatient} // Primary key remains email if creating from scratch
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">WhatsApp / Celular</label>
+                    <input
+                      type="text"
+                      placeholder="(11) 98888-7777"
+                      value={formPhone}
+                      onChange={(e) => setFormPhone(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPatientForm(false);
+                      setEditingPatient(null);
+                    }}
+                    className="bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-200 transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingState}
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50"
+                  >
+                    {savingState ? "Gravando..." : "Salvar Prontuário"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Filter / Search input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar paciente por nome, email ou telefone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-100 focus:border-purple-600 focus:bg-white rounded-2xl pl-10 pr-4 py-3 text-xs outline-none transition-all placeholder:text-slate-400"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+
+            {/* Table of patients */}
+            <div className="overflow-x-auto">
+              {filteredPatients.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  Nenhum paciente cadastrado correspondente encontrado.
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="pb-3 font-semibold">Identificação / Contato</th>
+                      {!selectedPatient && <th className="pb-3 font-semibold hidden sm:table-cell">Cadastro</th>}
+                      <th className="pb-3 text-right font-semibold">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPatients.map((p) => {
+                      const isCurrentlySelected = selectedPatient?.id === p.id;
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`border-b border-slate-50 hover:bg-slate-50/80 transition-all ${
+                            isCurrentlySelected ? "bg-purple-50/50" : ""
+                          }`}
+                        >
+                          <td className="py-3.5 pr-2">
+                            <div className="font-bold text-slate-800">{p.name}</div>
+                            <div className="text-[10px] text-slate-400 flex flex-col gap-0.5 mt-0.5 font-sans">
+                              <span>{p.email}</span>
+                              <span>{p.phone}</span>
+                            </div>
+                          </td>
+                          {!selectedPatient && (
+                            <td className="py-3.5 text-slate-500 hidden sm:table-cell">
+                              <span>{p.createdAt || "Paciente"}</span>
+                            </td>
+                          )}
+                          <td className="py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => setSelectedPatient(p)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                isCurrentlySelected
+                                  ? "bg-purple-600 text-white"
+                                  : "bg-purple-50 hover:bg-purple-100 text-purple-700"
+                              }`}
+                            >
+                              Ver Prontuário
+                            </button>
+                            <button
+                              onClick={() => handleEditPatientInit(p)}
+                              className="bg-slate-50 hover:bg-slate-100 border border-slate-100 hover:border-slate-200 text-slate-500 p-1.5 rounded-lg transition cursor-pointer inline-flex items-center"
+                              title="Editar Informações Cadastrais"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeletePatient(p.id)}
+                              className="bg-slate-50 hover:bg-rose-50 border border-slate-100 hover:border-rose-100 text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition cursor-pointer inline-flex items-center"
+                              title="Excluir Registro Clínico"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Selected Patient Clinical History / Evolutions Timeline (7 cols) */}
+        {selectedPatient ? (
+          <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-6 animate-slide-in">
+            
+            {/* Header patient profile box */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-5">
+              <div className="space-y-1">
+                <span className="text-[9px] font-bold text-purple-600 uppercase tracking-widest bg-purple-50 border border-purple-100 px-2.5 py-1 rounded-full block w-fit">
+                  Prontuário Médico Digital
+                </span>
+                <h3 className="font-black text-slate-900 text-xl tracking-tight">
+                  {selectedPatient.name}
+                </h3>
+                <div className="text-xs text-slate-500 space-x-3 flex items-center font-sans">
+                  <span>📧 {selectedPatient.email}</span>
+                  <span>📱 {selectedPatient.phone}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedPatient(null)}
+                className="bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg border border-slate-100 transition cursor-pointer"
+                title="Fechar Prontuário"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Action buttons header for timeline notes */}
+            <div className="flex items-center justify-between">
+              <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
+                <Clipboard className="w-4 h-4 text-purple-600" />
+                Histórico de Evolução Terapêutica
+              </h4>
+
+              {!showEvolutionForm && (
+                <button
+                  onClick={() => {
+                    setEditingEvolution(null);
+                    setFormText("");
+                    setFormDate(new Date().toISOString().split("T")[0]);
+                    setShowEvolutionForm(true);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Nova Evolução
+                </button>
+              )}
+            </div>
+
+            {/* Note addition/editing form */}
+            {showEvolutionForm && (
+              <form onSubmit={handleSaveEvolution} className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-purple-900 uppercase tracking-wider">
+                    {editingEvolution ? "✏️ Editar Evolução Clínica" : "📝 Nova Evolução Clínica"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEvolutionForm(false);
+                      setEditingEvolution(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-1 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Data da Consulta</label>
+                    <input
+                      type="date"
+                      value={formDate}
+                      onChange={(e) => setFormDate(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs outline-none focus:border-purple-600 transition"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-3 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Apontamentos Clínicos (Evolução / Observações)</label>
+                    <textarea
+                      placeholder="Descreva a evolução do paciente nesta sessão, técnicas aplicadas, bem-estar relatado, metas e compromissos acordados..."
+                      rows={4}
+                      value={formText}
+                      onChange={(e) => setFormText(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition leading-relaxed placeholder:text-slate-400"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEvolutionForm(false);
+                      setEditingEvolution(null);
+                    }}
+                    className="bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-200 transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingState}
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50"
+                  >
+                    {savingState ? "Gravando..." : "Registrar Sessão"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Evolutions Timeline rendering */}
+            <div className="space-y-4">
+              {selectedPatientEvs.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-150">
+                  Nenhum registro de evolução adicionado a este prontuário ainda. Comece clicando em "Nova Evolução".
+                </div>
+              ) : (
+                <div className="relative border-l border-slate-150 pl-5 space-y-6">
+                  {selectedPatientEvs.map((ev, index) => (
+                    <div key={ev.id} className="relative group animate-fade-in">
+                      
+                      {/* Timeline dot */}
+                      <span className="absolute -left-[26px] top-1 bg-white border-2 border-purple-500 rounded-full w-3 h-3 block group-hover:bg-purple-600 transition" />
+                      
+                      <div className="bg-slate-50 hover:bg-slate-100/50 rounded-2xl p-4 border border-slate-150/60 shadow-sm transition space-y-2 relative">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono text-purple-700 font-extrabold text-[11px] bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full uppercase">
+                            Sessão de {ev.date}
+                          </span>
+                          
+                          <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
+                            <button
+                              onClick={() => handleEditEvolutionInit(ev)}
+                              className="text-slate-400 hover:text-purple-600 p-1 rounded hover:bg-white transition cursor-pointer"
+                              title="Editar anotação clínica"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEvolution(ev.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-white transition cursor-pointer"
+                              title="Excluir anotação clínica"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <p className="text-slate-600 leading-relaxed font-sans text-xs whitespace-pre-line">
+                          {ev.text}
+                        </p>
+                      </div>
+
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        ) : (
+          <div className="hidden lg:block lg:col-span-12">
+            <div className="bg-slate-50 rounded-3xl border border-dashed border-slate-150 p-16 text-center text-slate-400 space-y-2">
+              <Users className="w-10 h-10 mx-auto text-slate-300" />
+              <h4 className="font-bold text-slate-700 text-sm">Nenhum Paciente Selecionado</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">Selecione um paciente na lista à esquerda clicando em <strong>"Ver Prontuário"</strong> para gerenciar suas anotações clínicas e evoluções de consulta.</p>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

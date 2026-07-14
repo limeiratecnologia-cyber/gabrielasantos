@@ -9,7 +9,7 @@ import {
   query,
   orderBy 
 } from "firebase/firestore";
-import { Booking, Approach } from "../types";
+import { Booking, Approach, Patient, ClinicalEvolution } from "../types";
 import { CLINIC_INFO, APPROACHES } from "../data";
 
 // Clinic Info Helpers
@@ -214,6 +214,160 @@ export async function deleteApproachFromDb(id: string): Promise<void> {
       const currentList: Approach[] = JSON.parse(saved);
       const filtered = currentList.filter(a => a.id !== id);
       localStorage.setItem("serenamente_approaches", JSON.stringify(filtered));
+    }
+  }
+}
+
+// ==========================================================================
+// Patient Database Helpers
+// ==========================================================================
+export async function getPatientsFromDb(): Promise<Patient[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "patients"));
+    const patients: Patient[] = [];
+    querySnapshot.forEach((doc) => {
+      patients.push({ id: doc.id, ...doc.data() } as Patient);
+    });
+
+    if (patients.length > 0) {
+      localStorage.setItem("serenamente_patients", JSON.stringify(patients));
+      return patients;
+    } else {
+      const saved = localStorage.getItem("serenamente_patients");
+      return saved ? JSON.parse(saved) : [];
+    }
+  } catch (error) {
+    console.error("Error fetching patients from Firestore:", error);
+    const saved = localStorage.getItem("serenamente_patients");
+    return saved ? JSON.parse(saved) : [];
+  }
+}
+
+export async function savePatientToDb(patient: Patient): Promise<void> {
+  try {
+    const docRef = doc(db, "patients", patient.id);
+    await setDoc(docRef, patient, { merge: true });
+
+    // Update local cache
+    const saved = localStorage.getItem("serenamente_patients");
+    const currentList: Patient[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(p => p.id === patient.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...patient };
+    } else {
+      currentList.push(patient);
+    }
+    localStorage.setItem("serenamente_patients", JSON.stringify(currentList));
+  } catch (error) {
+    console.error("Error saving patient to Firestore:", error);
+    const saved = localStorage.getItem("serenamente_patients");
+    const currentList: Patient[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(p => p.id === patient.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...patient };
+    } else {
+      currentList.push(patient);
+    }
+    localStorage.setItem("serenamente_patients", JSON.stringify(currentList));
+  }
+}
+
+export async function deletePatientFromDb(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, "patients", id);
+    await deleteDoc(docRef);
+
+    // Update local cache
+    const saved = localStorage.getItem("serenamente_patients");
+    if (saved) {
+      const currentList: Patient[] = JSON.parse(saved);
+      const filtered = currentList.filter(p => p.id !== id);
+      localStorage.setItem("serenamente_patients", JSON.stringify(filtered));
+    }
+  } catch (error) {
+    console.error("Error deleting patient from Firestore:", error);
+    const saved = localStorage.getItem("serenamente_patients");
+    if (saved) {
+      const currentList: Patient[] = JSON.parse(saved);
+      const filtered = currentList.filter(p => p.id !== id);
+      localStorage.setItem("serenamente_patients", JSON.stringify(filtered));
+    }
+  }
+}
+
+// ==========================================================================
+// Clinical Evolutions Helpers
+// ==========================================================================
+export async function getEvolutionsFromDb(): Promise<ClinicalEvolution[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "evolutions"));
+    const evolutions: ClinicalEvolution[] = [];
+    querySnapshot.forEach((doc) => {
+      evolutions.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
+    });
+
+    if (evolutions.length > 0) {
+      localStorage.setItem("serenamente_evolutions", JSON.stringify(evolutions));
+      return evolutions;
+    } else {
+      const saved = localStorage.getItem("serenamente_evolutions");
+      return saved ? JSON.parse(saved) : [];
+    }
+  } catch (error) {
+    console.error("Error fetching evolutions from Firestore:", error);
+    const saved = localStorage.getItem("serenamente_evolutions");
+    return saved ? JSON.parse(saved) : [];
+  }
+}
+
+export async function saveEvolutionToDb(evolution: ClinicalEvolution): Promise<void> {
+  try {
+    const docRef = doc(db, "evolutions", evolution.id);
+    await setDoc(docRef, evolution, { merge: true });
+
+    // Update local cache
+    const saved = localStorage.getItem("serenamente_evolutions");
+    const currentList: ClinicalEvolution[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(e => e.id === evolution.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...evolution };
+    } else {
+      currentList.push(evolution);
+    }
+    localStorage.setItem("serenamente_evolutions", JSON.stringify(currentList));
+  } catch (error) {
+    console.error("Error saving evolution to Firestore:", error);
+    const saved = localStorage.getItem("serenamente_evolutions");
+    const currentList: ClinicalEvolution[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(e => e.id === evolution.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...evolution };
+    } else {
+      currentList.push(evolution);
+    }
+    localStorage.setItem("serenamente_evolutions", JSON.stringify(currentList));
+  }
+}
+
+export async function deleteEvolutionFromDb(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, "evolutions", id);
+    await deleteDoc(docRef);
+
+    // Update local cache
+    const saved = localStorage.getItem("serenamente_evolutions");
+    if (saved) {
+      const currentList: ClinicalEvolution[] = JSON.parse(saved);
+      const filtered = currentList.filter(e => e.id !== id);
+      localStorage.setItem("serenamente_evolutions", JSON.stringify(filtered));
+    }
+  } catch (error) {
+    console.error("Error deleting evolution from Firestore:", error);
+    const saved = localStorage.getItem("serenamente_evolutions");
+    if (saved) {
+      const currentList: ClinicalEvolution[] = JSON.parse(saved);
+      const filtered = currentList.filter(e => e.id !== id);
+      localStorage.setItem("serenamente_evolutions", JSON.stringify(filtered));
     }
   }
 }

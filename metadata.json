@@ -1,6 +1,6 @@
 {
   "name": "Serena Mente",
   "description": "Portal de psicologia clínica, recursos de auto-cuidado, psicoeducação interativa e assistente reflexivo guiado.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -9,6 +9,7 @@ import AestheticHeader from "./components/AestheticHeader";
 import HomeSection from "./components/HomeSection";
 import ApproachesSection from "./components/ApproachesSection";
 import BookingSection from "./components/BookingSection";
+import OnlineConsultationSection from "./components/OnlineConsultationSection";
 import AdminSection from "./components/AdminSection";
 import { CLINIC_INFO, IMAGES } from "./data";
 import { getClinicInfoFromDb } from "./lib/firebaseService";
@@ -132,7 +133,9 @@ export default function App() {
       case "approaches":
         return <ApproachesSection />;
       case "booking":
-        return <BookingSection />;
+        return <BookingSection setActiveTab={setActiveTab} />;
+      case "online":
+        return <OnlineConsultationSection />;
       case "admin":
         return <AdminSection setActiveTab={setActiveTab} />;
       default:

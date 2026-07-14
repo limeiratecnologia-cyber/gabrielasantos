@@ -31,6 +31,23 @@ export interface Booking {
   timeSlot: string;
   notes?: string;
   status: "scheduled" | "completed" | "cancelled";
+  roomCode?: string;
+}
+
+export interface Patient {
+  id: string; // Typically lowercase email
+  name: string;
+  email: string;
+  phone: string;
+  createdAt: string;
+}
+
+export interface ClinicalEvolution {
+  id: string;
+  patientId: string; // Foreign key referencing Patient.id
+  date: string;
+  text: string;
+  createdAt: string;
 }
 
 export interface Approach {
@@ -49,4 +66,4 @@ export interface Approach {
   quote: string;
 }
 
-export type ActiveTab = "home" | "approaches" | "booking" | "admin";
+export type ActiveTab = "home" | "approaches" | "booking" | "online" | "admin";
