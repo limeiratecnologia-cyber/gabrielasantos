@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "collections": {
+    "clinic_info": {
+      "documents": {
+        "main": {
+          "fields": {
+            "therapistName": { "type": "string" },
+            "title": { "type": "string" },
+            "tabTitle": { "type": "string" },
+            "clinicLogo": { "type": "string" },
+            "faviconUrl": { "type": "string" },
+            "tagline": { "type": "string" },
+            "bio": { "type": "string" },
+            "credentials": { "type": "array" },
+            "clinicDetails": { "type": "map" },
+            "services": { "type": "array" }
+          }
+        }
+      }
+    },
+    "bookings": {
+      "documents": {}
+    },
+    "approaches": {
+      "documents": {}
+    }
+  }
+}

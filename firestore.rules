@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permit read and write for clinic settings, bookings, and approaches.
+    match /clinic_info/{document} {
+      allow read, write: if true;
+    }
+    match /bookings/{document} {
+      allow read, write: if true;
+    }
+    match /approaches/{document} {
+      allow read, write: if true;
+    }
+  }
+}
