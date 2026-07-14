@@ -8,27 +8,47 @@ import { getClinicInfoFromDb } from "../lib/firebaseService";
 interface HomeSectionProps {
   setActiveTab: (tab: ActiveTab) => void;
   logoSrc?: string;
+  clinicInfo?: any;
 }
 
-export default function HomeSection({ setActiveTab, logoSrc }: HomeSectionProps) {
-  const [clinicInfo, setClinicInfo] = useState<any>(CLINIC_INFO);
+export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propClinicInfo }: HomeSectionProps) {
+  const [localClinicInfo, setLocalClinicInfo] = useState<any>(() => {
+    const saved = localStorage.getItem("serenamente_clinic_info");
+    if (saved) {
+      try {
+        return { ...CLINIC_INFO, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error("Erro ao ler serenamente_clinic_info no mount de HomeSection:", e);
+      }
+    }
+    return CLINIC_INFO;
+  });
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
-    getClinicInfoFromDb().then((info) => {
-      setClinicInfo(info);
-    }).catch((err) => {
-      console.error("Erro ao carregar informações da clínica do Firestore:", err);
-      const saved = localStorage.getItem("serenamente_clinic_info");
-      if (saved) {
-        try {
-          setClinicInfo(JSON.parse(saved));
-        } catch (e) {
-          console.error("Erro ao ler serenamente_clinic_info:", e);
+    if (propClinicInfo) {
+      setLocalClinicInfo(propClinicInfo);
+    } else {
+      getClinicInfoFromDb().then((info) => {
+        if (info) {
+          setLocalClinicInfo(info);
+          localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
         }
-      }
-    });
-  }, []);
+      }).catch((err) => {
+        console.error("Erro ao carregar informações da clínica do Firestore:", err);
+        const saved = localStorage.getItem("serenamente_clinic_info");
+        if (saved) {
+          try {
+            setLocalClinicInfo(JSON.parse(saved));
+          } catch (e) {
+            console.error("Erro ao ler serenamente_clinic_info:", e);
+          }
+        }
+      });
+    }
+  }, [propClinicInfo]);
+
+  const clinicInfo = propClinicInfo || localClinicInfo;
 
   const bannerImages = clinicInfo.bannerImages && clinicInfo.bannerImages.length > 0
     ? clinicInfo.bannerImages

@@ -16,7 +16,17 @@ import { getClinicInfoFromDb } from "./lib/firebaseService";
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
   const [displayedTab, setDisplayedTab] = useState<ActiveTab>("home");
-  const [clinicInfo, setClinicInfo] = useState<any>(CLINIC_INFO);
+  const [clinicInfo, setClinicInfo] = useState<any>(() => {
+    const saved = localStorage.getItem("serenamente_clinic_info");
+    if (saved) {
+      try {
+        return { ...CLINIC_INFO, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error("Erro ao ler serenamente_clinic_info no mount:", e);
+      }
+    }
+    return CLINIC_INFO;
+  });
   const [pngLogo, setPngLogo] = useState<string>("");
   const [isSplashLoading, setIsSplashLoading] = useState(true);
   const [isTransitionLoading, setIsTransitionLoading] = useState(false);
@@ -67,7 +77,10 @@ export default function App() {
   // Sync clinicInfo with Firestore DB
   useEffect(() => {
     getClinicInfoFromDb().then((info) => {
-      setClinicInfo(info);
+      if (info) {
+        setClinicInfo(info);
+        localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
+      }
     }).catch((err) => {
       console.error("Erro ao carregar clinicInfo do Firestore:", err);
       const saved = localStorage.getItem("serenamente_clinic_info");
@@ -115,7 +128,7 @@ export default function App() {
   const renderActiveSection = () => {
     switch (displayedTab) {
       case "home":
-        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} />;
+        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
       case "approaches":
         return <ApproachesSection />;
       case "booking":
@@ -123,7 +136,7 @@ export default function App() {
       case "admin":
         return <AdminSection setActiveTab={setActiveTab} />;
       default:
-        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} />;
+        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
     }
   };
 
@@ -207,7 +220,7 @@ export default function App() {
 
       <div className="min-h-screen bg-[#FCFDFD] flex flex-col font-sans selection:bg-purple-600/10 selection:text-purple-900" id="app-root">
         {/* Aesthetic Header / Navigation */}
-        <AestheticHeader activeTab={activeTab} setActiveTab={setActiveTab} logoSrc={pngLogo} />
+        <AestheticHeader activeTab={activeTab} setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />
 
         {/* Main Content Area */}
         <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">

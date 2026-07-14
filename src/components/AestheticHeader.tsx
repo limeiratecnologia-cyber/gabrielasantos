@@ -8,27 +8,47 @@ interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   logoSrc?: string;
+  clinicInfo?: any;
 }
 
-export default function AestheticHeader({ activeTab, setActiveTab, logoSrc }: HeaderProps) {
+export default function AestheticHeader({ activeTab, setActiveTab, logoSrc, clinicInfo: propClinicInfo }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [clinicInfo, setClinicInfo] = useState(CLINIC_INFO);
+  const [localClinicInfo, setLocalClinicInfo] = useState(() => {
+    const saved = localStorage.getItem("serenamente_clinic_info");
+    if (saved) {
+      try {
+        return { ...CLINIC_INFO, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return CLINIC_INFO;
+  });
 
   useEffect(() => {
-    getClinicInfoFromDb().then((info) => {
-      setClinicInfo(info);
-    }).catch((err) => {
-      console.error("Erro ao carregar informações da clínica do Firestore:", err);
-      const saved = localStorage.getItem("serenamente_clinic_info");
-      if (saved) {
-        try {
-          setClinicInfo(JSON.parse(saved));
-        } catch (e) {
-          console.error(e);
+    if (propClinicInfo) {
+      setLocalClinicInfo(propClinicInfo);
+    } else {
+      getClinicInfoFromDb().then((info) => {
+        if (info) {
+          setLocalClinicInfo(info);
+          localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
         }
-      }
-    });
-  }, [activeTab]);
+      }).catch((err) => {
+        console.error("Erro ao carregar informações da clínica do Firestore:", err);
+        const saved = localStorage.getItem("serenamente_clinic_info");
+        if (saved) {
+          try {
+            setLocalClinicInfo(JSON.parse(saved));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      });
+    }
+  }, [activeTab, propClinicInfo]);
+
+  const clinicInfo = propClinicInfo || localClinicInfo;
 
   const navItems = [
     { id: "home", label: "A Clínica", icon: Heart },
