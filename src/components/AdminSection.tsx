@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import AdminOnlineTab from "./AdminOnlineTab";
 import { Booking, Approach, ActiveTab, Patient, ClinicalEvolution } from "../types";
 import { CLINIC_INFO, APPROACHES, IMAGES } from "../data";
 import { 
@@ -32,7 +33,9 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
   const [password, setPassword] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "website" | "approaches">("agenda");
+  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "online" | "website" | "approaches">("agenda");
+  const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
+  const [preselectedRoom, setPreselectedRoom] = useState<{ roomCode: string; clientName: string } | null>(null);
 
   // Authorized state persistence during session
   useEffect(() => {
@@ -179,6 +182,18 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
           Pacientes e Prontuários
         </button>
         <button
+          onClick={() => setAdminTab("online")}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
+            adminTab === "online"
+              ? "border-purple-600 text-purple-700 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+          id="tab-admin-online"
+        >
+          <Video className="w-4.5 h-4.5" />
+          Atendimento Ao Vivo
+        </button>
+        <button
           onClick={() => setAdminTab("website")}
           className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
             adminTab === "website"
@@ -206,8 +221,30 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
 
       {/* Tab Contents */}
       <div className="animate-fade-in">
-        {adminTab === "agenda" && <AdminAgendaTab />}
-        {adminTab === "patients" && <AdminPatientsTab />}
+        {adminTab === "agenda" && (
+          <AdminAgendaTab 
+            preselectedPatient={preselectedPatient}
+            onClearPreselectedPatient={() => setPreselectedPatient(null)}
+            onSelectLiveRoom={(roomCode, clientName) => {
+              setPreselectedRoom({ roomCode, clientName });
+              setAdminTab("online");
+            }}
+          />
+        )}
+        {adminTab === "patients" && (
+          <AdminPatientsTab 
+            onScheduleConsultation={(patient) => {
+              setPreselectedPatient(patient);
+              setAdminTab("agenda");
+            }}
+          />
+        )}
+        {adminTab === "online" && (
+          <AdminOnlineTab 
+            preselectedRoom={preselectedRoom}
+            onClearPreselectedRoom={() => setPreselectedRoom(null)}
+          />
+        )}
         {adminTab === "website" && <AdminWebsiteTab />}
         {adminTab === "approaches" && <AdminApproachesTab />}
       </div>
@@ -218,7 +255,13 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
 /* ==========================================================================
    SUB-COMPONENT: ADMIN AGENDA TAB
    ========================================================================== */
-function AdminAgendaTab() {
+interface AdminAgendaTabProps {
+  preselectedPatient?: Patient | null;
+  onClearPreselectedPatient?: () => void;
+  onSelectLiveRoom?: (roomCode: string, clientName: string) => void;
+}
+
+function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelectLiveRoom }: AdminAgendaTabProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filter, setFilter] = useState<"all" | "scheduled" | "completed" | "cancelled">("all");
   
@@ -233,6 +276,10 @@ function AdminAgendaTab() {
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Registered patients selection state
+  const [registeredPatients, setRegisteredPatients] = useState<Patient[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState("");
 
   // General Calendar States
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
@@ -262,7 +309,27 @@ function AdminAgendaTab() {
         }
       }
     });
+
+    getPatientsFromDb().then((list) => {
+      setRegisteredPatients(list);
+    }).catch((err) => {
+      console.error("Erro ao carregar pacientes:", err);
+    });
   }, []);
+
+  useEffect(() => {
+    if (preselectedPatient) {
+      setShowAddForm(true);
+      setName(preselectedPatient.name);
+      setEmail(preselectedPatient.email && preselectedPatient.email !== "Não informado" ? preselectedPatient.email : "");
+      setPhone(preselectedPatient.phone);
+      setSelectedPatientId(preselectedPatient.id);
+      
+      if (onClearPreselectedPatient) {
+        onClearPreselectedPatient();
+      }
+    }
+  }, [preselectedPatient, onClearPreselectedPatient]);
 
   const handleStatusChange = (id: string, newStatus: "scheduled" | "completed" | "cancelled") => {
     const found = bookings.find(b => b.id === id);
@@ -329,6 +396,19 @@ function AdminAgendaTab() {
       setBookings(prev => [newBooking, ...prev]);
     });
 
+    // Auto-save/register the patient in the patient database if needed
+    const patientId = selectedPatientId || `patient-${email ? email.replace(/[^a-zA-Z0-9]/g, "_") : Date.now()}`;
+    const patientObj: Patient = {
+      id: patientId,
+      name,
+      email: email || "Não informado",
+      phone,
+      createdAt: new Date().toLocaleDateString("pt-BR")
+    };
+    savePatientToDb(patientObj).then(() => {
+      getPatientsFromDb().then(setRegisteredPatients).catch(console.error);
+    }).catch(err => console.error("Erro ao registrar paciente:", err));
+
     setName("");
     setEmail("");
     setPhone("");
@@ -337,6 +417,7 @@ function AdminAgendaTab() {
     setDate("");
     setTime("");
     setNotes("");
+    setSelectedPatientId("");
     setShowAddForm(false);
     
     setSuccessMsg("Novo agendamento inserido diretamente com sucesso!");
@@ -413,6 +494,44 @@ function AdminAgendaTab() {
           </div>
 
           <form onSubmit={handleManualSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {registeredPatients.length > 0 && (
+              <div className="md:col-span-3 space-y-1.5 bg-purple-50/40 p-4 rounded-2xl border border-purple-100/60 mb-2">
+                <label className="block text-[11px] font-sans font-bold text-purple-800 uppercase tracking-wider">
+                  Vincular Paciente Já Cadastrado (Opcional)
+                </label>
+                <select
+                  value={selectedPatientId}
+                  onChange={(e) => {
+                    const pId = e.target.value;
+                    setSelectedPatientId(pId);
+                    if (pId) {
+                      const p = registeredPatients.find((item) => item.id === pId);
+                      if (p) {
+                        setName(p.name);
+                        setEmail(p.email && p.email !== "Não informado" ? p.email : "");
+                        setPhone(p.phone);
+                      }
+                    } else {
+                      setName("");
+                      setEmail("");
+                      setPhone("");
+                    }
+                  }}
+                  className="w-full bg-white border border-purple-200/60 rounded-xl px-3.5 py-2.5 text-xs font-sans outline-none focus:border-purple-600 transition cursor-pointer text-slate-800 font-medium"
+                >
+                  <option value="">-- Preencher Manualmente / Novo Paciente --</option>
+                  {registeredPatients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      👤 {p.name} ({p.phone}) {p.email && p.email !== "Não informado" ? ` - ${p.email}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-purple-600 font-sans font-medium">
+                  💡 Selecionar um paciente cadastrado preencherá os dados de contato automaticamente.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1">
               <label className="block text-[11px] font-sans font-bold text-slate-500 uppercase tracking-wider">Nome do Paciente *</label>
               <input
@@ -913,6 +1032,20 @@ function AdminAgendaTab() {
                     <td className="p-4 text-right pr-6 space-x-1 whitespace-nowrap">
                       {b.status === "scheduled" && (
                         <>
+                          {b.roomCode && (b.consultationType || "online") !== "presencial" && (
+                            <button
+                              onClick={() => {
+                                if (onSelectLiveRoom) {
+                                  onSelectLiveRoom(b.roomCode!, b.clientName);
+                                }
+                              }}
+                              className="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer shadow-sm flex items-center gap-1 inline-flex mr-1"
+                              title="Iniciar Transmissão Ao Vivo para esta consulta"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                              Atender
+                            </button>
+                          )}
                           <button
                             onClick={() => handleStatusChange(b.id, "completed")}
                             className="bg-green-50 hover:bg-green-100 text-green-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-green-100"
@@ -960,7 +1093,11 @@ function AdminAgendaTab() {
 /* ==========================================================================
    SUB-COMPONENT: ADMIN PATIENTS TAB (CLINICAL CHART & EVOLUTIONS)
    ========================================================================== */
-function AdminPatientsTab() {
+interface AdminPatientsTabProps {
+  onScheduleConsultation?: (patient: Patient) => void;
+}
+
+function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [evolutions, setEvolutions] = useState<ClinicalEvolution[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1368,6 +1505,15 @@ function AdminPatientsTab() {
                               Ver Prontuário
                             </button>
                             <button
+                              type="button"
+                              onClick={() => onScheduleConsultation?.(p)}
+                              className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100/60 text-indigo-700 font-bold px-3 py-1.5 rounded-lg text-[11px] transition-all cursor-pointer inline-flex items-center gap-1"
+                              title="Marcar / Remarcar Consulta para este Paciente"
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                              Agendar
+                            </button>
+                            <button
                               onClick={() => handleEditPatientInit(p)}
                               className="bg-slate-50 hover:bg-slate-100 border border-slate-100 hover:border-slate-200 text-slate-500 p-1.5 rounded-lg transition cursor-pointer inline-flex items-center"
                               title="Editar Informações Cadastrais"
@@ -1411,13 +1557,24 @@ function AdminPatientsTab() {
                 </div>
               </div>
 
-              <button
-                onClick={() => setSelectedPatient(null)}
-                className="bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg border border-slate-100 transition cursor-pointer"
-                title="Fechar Prontuário"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onScheduleConsultation?.(selectedPatient)}
+                  className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100/60 text-indigo-700 font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Marcar ou Remarcar Consulta para este Paciente"
+                >
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  Agendar / Remarcar
+                </button>
+                <button
+                  onClick={() => setSelectedPatient(null)}
+                  className="bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg border border-slate-100 transition cursor-pointer"
+                  title="Fechar Prontuário"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Action buttons header for timeline notes */}

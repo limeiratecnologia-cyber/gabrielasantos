@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Send, MessageSquare, Shield, Clock, Users, Sparkles, CheckCircle, HelpCircle, Laptop, Camera, AlertCircle, User } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Send, MessageSquare, Shield, Clock, Users, Sparkles, CheckCircle, HelpCircle, Laptop, Camera, AlertCircle, User, Heart } from "lucide-react";
+import { db } from "../lib/firebase";
+import { doc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { getBookingsFromDb } from "../lib/firebaseService";
 import { Booking } from "../types";
 
 export default function OnlineConsultationSection() {
   const [roomCode, setRoomCode] = useState("");
   const [isInCall, setIsInCall] = useState(false);
+  const [therapistIsLive, setTherapistIsLive] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [bookingDetails, setBookingDetails] = useState<Booking | null>(null);
 
@@ -21,6 +24,33 @@ export default function OnlineConsultationSection() {
   const [streamError, setStreamError] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Breathing guide states for waiting room
+  const [breathState, setBreathState] = useState<"idle" | "inhale" | "hold" | "exhale">("idle");
+  const [breathCycle, setBreathCycle] = useState(0);
+
+  // Breathing loop effect
+  useEffect(() => {
+    if (breathState === "idle") return;
+
+    let timer: any;
+    if (breathState === "inhale") {
+      timer = setTimeout(() => {
+        setBreathState("hold");
+      }, 4000);
+    } else if (breathState === "hold") {
+      timer = setTimeout(() => {
+        setBreathState("exhale");
+      }, 4000);
+    } else if (breathState === "exhale") {
+      timer = setTimeout(() => {
+        setBreathState("inhale");
+        setBreathCycle((c) => c + 1);
+      }, 4000);
+    }
+
+    return () => clearTimeout(timer);
+  }, [breathState]);
+
   // Chat console
   const [messages, setMessages] = useState<Array<{ sender: "user" | "therapist", text: string, time: string }>>([
     { sender: "therapist", text: "Olá! Seja muito bem-vindo(a) à nossa sala de teleconsulta protegida. Como você está se sentindo hoje?", time: "00:01" }
@@ -32,6 +62,36 @@ export default function OnlineConsultationSection() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Firestore Room Real-time Listener
+  useEffect(() => {
+    if (!isInCall || !roomCode) return;
+    
+    const sanitizedCode = roomCode.trim().toUpperCase();
+    if (sanitizedCode === "DEMO" || sanitizedCode === "TESTE") {
+      setTherapistIsLive(true);
+      return;
+    }
+
+    const roomRef = doc(db, "room_sessions", sanitizedCode);
+    const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setTherapistIsLive(!!data.therapistIsLive);
+        if (data.messages) {
+          const sorted = [...data.messages].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+          setMessages(sorted);
+        }
+      } else {
+        // Room session document doesn't exist yet, meaning therapist has not initialized or gone live yet
+        setTherapistIsLive(false);
+      }
+    }, (err) => {
+      console.error("Firestore listening error:", err);
+    });
+
+    return () => unsubscribe();
+  }, [isInCall, roomCode]);
 
   // Session duration timer
   useEffect(() => {
@@ -138,41 +198,65 @@ export default function OnlineConsultationSection() {
     }
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
 
-    const newMsg = {
-      sender: "user" as const,
-      text: inputText.trim(),
-      time: formatTime(callTimer)
-    };
+    const sanitizedCode = roomCode.trim().toUpperCase();
+    if (sanitizedCode === "DEMO" || sanitizedCode === "TESTE") {
+      const newMsg = {
+        sender: "user" as const,
+        text: inputText.trim(),
+        time: formatTime(callTimer),
+        timestamp: Date.now()
+      };
 
-    setMessages((prev) => [...prev, newMsg]);
-    setInputText("");
+      setMessages((prev) => [...prev, newMsg]);
+      setInputText("");
 
-    // Simulate comforting therapist answers
-    setTimeout(() => {
-      let responseText = "Entendo perfeitamente o que você diz. Pode detalhar um pouco mais como essa emoção se manifesta no seu corpo?";
-      const msgLower = newMsg.text.toLowerCase();
+      // Simulate comforting therapist answers
+      setTimeout(() => {
+        let responseText = "Entendo perfeitamente o que você diz. Pode detalhar um pouco mais como essa emoção se manifesta no seu corpo?";
+        const msgLower = newMsg.text.toLowerCase();
 
-      if (msgLower.includes("ansiedade") || msgLower.includes("ansioso") || msgLower.includes("ansiosa")) {
-        responseText = "A ansiedade pode parecer sufocante agora, mas lembre-se de que é uma resposta protetora do seu corpo. Vamos fazer uma respiração profunda juntos?";
-      } else if (msgLower.includes("triste") || msgLower.includes("tristeza") || msgLower.includes("chorar")) {
-        responseText = "Sinto muito que você esteja passando por esse momento doloroso. Acolher essa tristeza sem julgamento é o primeiro passo para a cura emocional.";
-      } else if (msgLower.includes("obrigado") || msgLower.includes("obrigada") || msgLower.includes("valeu")) {
-        responseText = "Por nada! Fico muito contente de estarmos progredindo juntos nessa caminhada terapêutica.";
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: "therapist",
-          text: responseText,
-          time: formatTime(callTimer + 2)
+        if (msgLower.includes("ansiedade") || msgLower.includes("ansioso") || msgLower.includes("ansiosa")) {
+          responseText = "A ansiedade pode parecer sufocante agora, mas lembre-se de que é uma resposta protetora do seu corpo. Vamos fazer uma respiração profunda juntos?";
+        } else if (msgLower.includes("triste") || msgLower.includes("tristeza") || msgLower.includes("chorar")) {
+          responseText = "Sinto muito que você esteja passando por esse momento doloroso. Acolher essa tristeza sem julgamento é o primeiro passo para a cura emocional.";
+        } else if (msgLower.includes("obrigado") || msgLower.includes("obrigada") || msgLower.includes("valeu")) {
+          responseText = "Por nada! Fico muito contente de estarmos progredindo juntos nessa caminhada terapêutica.";
         }
-      ]);
-    }, 2000);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "therapist",
+            text: responseText,
+            time: formatTime(callTimer + 2),
+            timestamp: Date.now()
+          }
+        ]);
+      }, 2000);
+      return;
+    }
+
+    try {
+      const roomRef = doc(db, "room_sessions", sanitizedCode);
+      const newMsg = {
+        sender: "user" as const,
+        text: inputText.trim(),
+        time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        timestamp: Date.now()
+      };
+
+      await updateDoc(roomRef, {
+        messages: arrayUnion(newMsg)
+      });
+
+      setInputText("");
+    } catch (err) {
+      console.error("Error sending message to Firestore:", err);
+    }
   };
 
   const generateQuickDemo = () => {
@@ -313,36 +397,115 @@ export default function OnlineConsultationSection() {
               
               {/* Remote Video Stream (Main viewport - Psychologist perspective or Patient placeholder) */}
               <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/40 border border-slate-800/60 overflow-hidden relative flex flex-col items-center justify-center transition-all">
-                
-                {/* Simulated professional screen */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4">
-                  {/* Psychologist mockup avatar */}
-                  <div className="w-24 h-24 rounded-full bg-purple-600/10 border-2 border-purple-500/30 flex items-center justify-center shadow-lg relative group">
-                    <div className="absolute inset-0 rounded-full border-4 border-dashed border-purple-400 animate-spin opacity-20 duration-10000" />
-                    <User className="w-10 h-10 text-purple-400" />
-                  </div>
-                  
-                  <div className="text-center space-y-1">
-                    <h4 className="font-extrabold text-slate-200">Dra. Gabriela Santos</h4>
-                    <p className="text-xs text-slate-400">Psicóloga Clínica • CRP 06/123456</p>
-                    <div className="inline-flex items-center gap-1 bg-green-950/60 text-green-400 border border-green-900 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                      Conectada
+                {therapistIsLive ? (
+                  /* Simulated professional screen */
+                  <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 animate-fade-in">
+                    {/* Psychologist mockup avatar */}
+                    <div className="w-24 h-24 rounded-full bg-purple-600/10 border-2 border-purple-500/30 flex items-center justify-center shadow-lg relative group">
+                      <div className="absolute inset-0 rounded-full border-4 border-dashed border-purple-400 animate-spin opacity-20 duration-10000" />
+                      <User className="w-10 h-10 text-purple-400" />
+                    </div>
+                    
+                    <div className="text-center space-y-1">
+                      <h4 className="font-extrabold text-slate-200">Dra. Gabriela Santos</h4>
+                      <p className="text-xs text-slate-400">Psicóloga Clínica • CRP 06/123456</p>
+                      <div className="inline-flex items-center gap-1 bg-green-950/60 text-green-400 border border-green-900 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                        Conectada e Transmitindo
+                      </div>
+                    </div>
+
+                    {/* Talking feedback visualizer */}
+                    <div className="flex items-center gap-0.5 h-6">
+                      <div className="w-1 bg-purple-500 rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
+                      <div className="w-1 bg-purple-500 rounded-full animate-bounce h-4" style={{ animationDelay: "0.3s" }} />
+                      <div className="w-1 bg-purple-500 rounded-full animate-bounce h-5" style={{ animationDelay: "0.5s" }} />
+                      <div className="w-1 bg-purple-500 rounded-full animate-bounce h-3" style={{ animationDelay: "0.2s" }} />
+                      <div className="w-1 bg-purple-500 rounded-full animate-bounce h-1" style={{ animationDelay: "0.4s" }} />
                     </div>
                   </div>
+                ) : (
+                  /* Gorgeous Waiting Room with ACT breathing exercises */
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-6 animate-fade-in bg-slate-950/40">
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute w-20 h-20 rounded-full bg-purple-500/10 animate-ping duration-[1.5s]" />
+                      <div className="w-16 h-16 rounded-full bg-slate-900 border border-purple-500/30 flex items-center justify-center shadow-inner relative">
+                        <Clock className="w-7 h-7 text-purple-400 animate-pulse" />
+                      </div>
+                    </div>
 
-                  {/* Talking feedback visualizer */}
-                  <div className="flex items-center gap-0.5 h-6">
-                    <div className="w-1 bg-purple-500 rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
-                    <div className="w-1 bg-purple-500 rounded-full animate-bounce h-4" style={{ animationDelay: "0.3s" }} />
-                    <div className="w-1 bg-purple-500 rounded-full animate-bounce h-5" style={{ animationDelay: "0.5s" }} />
-                    <div className="w-1 bg-purple-500 rounded-full animate-bounce h-3" style={{ animationDelay: "0.2s" }} />
-                    <div className="w-1 bg-purple-500 rounded-full animate-bounce h-1" style={{ animationDelay: "0.4s" }} />
+                    <div className="space-y-2 max-w-sm">
+                      <h4 className="font-extrabold text-slate-200 text-base tracking-tight">Sala de Espera Ativa</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Olá, <strong>{bookingDetails?.clientName || "Paciente"}</strong>! Você se conectou à sala com sucesso. Aguardando a <strong>Dra. Gabriela Santos</strong> iniciar a transmissão ao vivo.
+                      </p>
+                    </div>
+
+                    {/* Interactive ACT/Mindfulness Breathing Exercise */}
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-xl">
+                      <div className="flex items-center gap-1.5 justify-center text-xs font-bold text-purple-400 uppercase tracking-wider">
+                        <Heart className="w-4 h-4 text-purple-500" />
+                        Exercício de Respiração Guiada
+                      </div>
+                      
+                      {breathState === "idle" ? (
+                        <div className="space-y-3">
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Que tal aproveitar esse tempo de espera para acalmar os batimentos e sintonizar sua atenção plena?
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setBreathState("inhale")}
+                            className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 hover:text-white border border-purple-500/30 hover:border-purple-500 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Iniciar Prática Respiratória
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 flex flex-col items-center">
+                          {/* Pulsing Breathing Bubble */}
+                          <div className="relative flex items-center justify-center h-24 w-24">
+                            <div 
+                              className={`absolute rounded-full bg-purple-500/10 border border-purple-500/20 transition-all duration-4000 ${
+                                breathState === "inhale" ? "scale-[1.7]" : breathState === "hold" ? "scale-[1.7] bg-purple-500/20" : "scale-[0.8]"
+                              }`} 
+                            />
+                            <div className="h-12 w-12 rounded-full bg-purple-600 border border-purple-500 shadow-lg flex items-center justify-center text-white font-extrabold text-xs">
+                              {breathState === "inhale" && "Inspirar"}
+                              {breathState === "hold" && "Segurar"}
+                              {breathState === "exhale" && "Expirar"}
+                            </div>
+                          </div>
+
+                          <div className="text-center space-y-1">
+                            <p className="text-xs font-extrabold text-purple-300 capitalize">
+                              {breathState === "inhale" && "Puxe o ar suavemente..."}
+                              {breathState === "hold" && "Segure e relaxe os ombros..."}
+                              {breathState === "exhale" && "Solte devagar..."}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-medium">
+                              Ciclo {breathCycle + 1} finalizado • Toque abaixo para parar
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBreathState("idle");
+                              setBreathCycle(0);
+                            }}
+                            className="text-[10px] text-slate-400 hover:text-slate-200 underline font-semibold transition cursor-pointer"
+                          >
+                            Encerrar Exercício
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="absolute bottom-4 left-4 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-200 font-bold backdrop-blur-sm">
-                  Feed de Vídeo Principal (Psicóloga)
+                <div className="absolute bottom-4 left-4 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl text-[10px] text-slate-200 font-bold backdrop-blur-sm tracking-wider uppercase">
+                  {therapistIsLive ? "🔴 TRANSMISSÃO AO VIVO" : "⏱️ AGUARDANDO PROFISSIONAL"}
                 </div>
               </div>
 
