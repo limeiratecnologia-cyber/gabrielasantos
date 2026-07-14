@@ -51,6 +51,28 @@ export interface ClinicalEvolution {
   createdAt: string;
 }
 
+export interface HelpPsiEmergency {
+  id: string;
+  patientName: string;
+  whatsapp: string;
+  status: "pending" | "resolved";
+  createdAt: string;
+  timestamp: number;
+}
+
+export interface PlannedSession {
+  id: string;
+  patientId: string; // Foreign key referencing Patient.id
+  title: string;
+  estimatedDate?: string;
+  plan?: string;
+  status: "planejado" | "realizado" | "cancelado" | "pending" | "completed";
+  createdAt?: string;
+  sessionNumber?: number;
+  expectedGoal?: string;
+  notes?: string;
+}
+
 export interface Approach {
   id: string;
   name: string;

@@ -418,34 +418,34 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         </div>
       ) : (
         /* Therapist Live Broadcast workspace */
-        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-hidden shadow-2xl h-[680px] flex flex-col border border-slate-850 animate-fade-in relative font-sans">
+        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-hidden shadow-2xl h-[720px] md:h-[680px] flex flex-col border border-slate-850 animate-fade-in relative font-sans">
           
           {/* Top header bar */}
-          <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
+          <div className="bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
             <div className="flex items-center gap-3">
-              <span className="flex h-3 w-3 relative">
+              <span className="flex h-3 w-3 relative shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
               </span>
-              <div>
-                <h3 className="font-extrabold text-sm text-slate-200">
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-sm text-slate-200 truncate">
                   Transmissão Ativa • Atendendo {selectedPatient?.name}
                 </h3>
                 <p className="text-[10px] text-rose-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                  🔴 TRANSMISSÃO DE VÍDEO EM TEMPO REAL
+                  🔴 TRANSMISSÃO AO VIVO
                 </p>
               </div>
             </div>
 
             {/* Room code copy trigger */}
-            <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center gap-1.5 bg-slate-800/80 border border-slate-750 px-3 py-1.5 rounded-full text-xs font-mono font-bold text-slate-300">
+            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
+              <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-750 px-3 py-1.5 rounded-full text-xs font-mono font-bold text-slate-300">
                 <Clock className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
                 {formatTime(callTimer)}
               </div>
 
-              <div className="flex items-center bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-1.5">
-                <span className="text-[10px] text-slate-400 font-bold uppercase mr-2 tracking-wider">CÓDIGO:</span>
+              <div className="flex items-center bg-slate-950/60 border border-slate-800 rounded-xl px-2.5 py-1.5">
+                <span className="text-[9px] text-slate-400 font-bold uppercase mr-1.5 tracking-wider">CÓDIGO:</span>
                 <span className="font-mono font-bold text-purple-400 text-xs mr-2">{roomCode}</span>
                 <button
                   onClick={copyRoomCode}
@@ -459,52 +459,80 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
           </div>
 
           {/* Main Workspace Stage */}
-          <div className="flex-1 flex overflow-hidden relative">
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
             
-            {/* Camera feed area */}
-            <div className="flex-1 bg-slate-950 p-4 relative flex items-center justify-center overflow-hidden">
-              <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/20 border border-slate-850 overflow-hidden relative flex items-center justify-center">
-                
-                {!isVideoOff && !streamError ? (
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover scale-x-[-1]"
-                  />
-                ) : (
-                  <div className="text-center space-y-4">
-                    <div className="w-20 h-20 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
-                      <VideoOff className="w-8 h-8 text-slate-500" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-300">Sua Câmera está Desligada</h4>
-                      <p className="text-xs text-slate-500 max-w-xs mx-auto">Ligue sua câmera utilizando os botões de controle abaixo para transmitir.</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Floating details */}
-                <div className="absolute bottom-4 left-4 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-green-400 animate-pulse" />
-                  FEED DE TRANSMISSÃO (SUA CÂMERA)
-                </div>
-
-                {/* Simulated telemetry overlay */}
-                <div className="absolute top-4 left-4 flex gap-1.5">
-                  <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-2 py-0.5 rounded backdrop-blur-xs font-mono">
-                    FPS: 30
-                  </span>
-                  <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-2 py-0.5 rounded backdrop-blur-xs font-mono">
-                    BITRATE: 1.2 MBPS
-                  </span>
-                </div>
-              </div>
-            </div>
+             {/* Camera feed area */}
+             <div className="flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-hidden shrink-0 md:shrink">
+               <div className="w-full h-full flex flex-col sm:flex-row md:block relative gap-3">
+                 
+                 {/* 1. Therapist Local Video Box */}
+                 <div className="flex-1 md:absolute md:inset-0 rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/20 border border-slate-850 overflow-hidden relative flex items-center justify-center shadow-lg">
+                   {!isVideoOff && !streamError ? (
+                     <video
+                       ref={localVideoRef}
+                       autoPlay
+                       playsInline
+                       muted
+                       className="w-full h-full object-cover scale-x-[-1]"
+                     />
+                   ) : (
+                     <div className="text-center space-y-2 py-6">
+                       <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
+                         <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500" />
+                       </div>
+                       <div>
+                         <h4 className="font-bold text-xs sm:text-sm text-slate-300">Câmera Desativada</h4>
+                         <p className="text-[10px] text-slate-500 max-w-[200px] sm:max-w-xs mx-auto">Use os botões de controle para transmitir.</p>
+                       </div>
+                     </div>
+                   )}
+ 
+                   {/* Floating details badge */}
+                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm flex items-center gap-1.5 z-10">
+                     <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+                     SUA CÂMERA (AO VIVO)
+                   </div>
+ 
+                   {/* Simulated telemetry overlay (Desktop only to prevent clutter on mobile) */}
+                   <div className="absolute top-3 left-3 flex gap-1.5 z-10 hidden sm:flex">
+                     <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-1.5 py-0.5 rounded backdrop-blur-xs font-mono">
+                       FPS: 30
+                     </span>
+                     <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-1.5 py-0.5 rounded backdrop-blur-xs font-mono">
+                       1.2 MBPS
+                     </span>
+                   </div>
+                 </div>
+ 
+                 {/* 2. Patient Remote Video Box - picture in picture on desktop, side-by-side split on mobile */}
+                 <div className="flex-1 md:absolute md:bottom-4 md:right-4 md:w-56 md:aspect-video rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20">
+                   <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center">
+                     {/* Glowing user circle */}
+                     <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shadow">
+                       <User className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
+                     </div>
+                     <div className="text-center space-y-1 min-w-0 w-full px-1">
+                       <span className="text-xs text-slate-200 font-bold block truncate">
+                         {selectedPatient?.name || "Paciente Conectado"}
+                       </span>
+                       <span className="inline-flex items-center gap-1 bg-green-950 text-green-400 border border-green-900 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
+                         <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                         Online
+                       </span>
+                     </div>
+                   </div>
+                   
+                   {/* Floating badge */}
+                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-10">
+                     PACIENTE
+                   </div>
+                 </div>
+ 
+               </div>
+             </div>
 
             {/* Right sidebar tab section */}
-            <div className="w-80 border-l border-slate-800 bg-slate-900 flex flex-col shrink-0">
+            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col flex-1 md:flex-none md:shrink-0 overflow-hidden">
               {/* Sidebar header selector */}
               <div className="flex border-b border-slate-800 text-xs font-bold text-slate-400">
                 <button
@@ -536,7 +564,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                 {activeTab === "chat" ? (
                   <>
                     {/* Chat Messages */}
-                    <div className="flex-1 space-y-4 pr-1 min-h-[300px]">
+                    <div className="flex-1 space-y-4 pr-1 overflow-y-auto min-h-0">
                       {messages.length === 0 ? (
                         <div className="text-center py-12 text-slate-500 text-xs space-y-1">
                           <p>Nenhuma mensagem enviada ainda.</p>
@@ -631,36 +659,36 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
           </div>
 
           {/* Bottom video workspace controllers */}
-          <div className="bg-slate-900 border-t border-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-medium">
+          <div className="bg-slate-900 border-t border-slate-800 px-4 md:px-6 py-3.5 md:py-4 flex items-center justify-between shrink-0">
+            <div className="hidden md:flex items-center gap-2 text-xs text-slate-400 font-medium">
               <User className="w-4 h-4 text-slate-500" />
-              Sua câmera e microfone estão transmitindo.
+              Transmissão de câmera ativa
             </div>
 
             {/* Interactive controllers */}
-            <div className="flex items-center gap-3 mx-auto sm:mx-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 mx-auto sm:mx-0">
               <button
                 onClick={() => setIsMuted(!isMuted)}
-                className={`w-11 h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
+                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
                   isMuted
                     ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-lg shadow-rose-600/10"
                     : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
                 }`}
                 title={isMuted ? "Ativar Microfone" : "Mutar Microfone"}
               >
-                {isMuted ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
+                {isMuted ? <MicOff className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> : <Mic className="w-4 h-4 sm:w-4.5 sm:h-4.5" />}
               </button>
 
               <button
                 onClick={() => setIsVideoOff(!isVideoOff)}
-                className={`w-11 h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
+                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
                   isVideoOff
                     ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-lg shadow-rose-600/10"
                     : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
                 }`}
                 title={isVideoOff ? "Ligar Câmera" : "Desligar Câmera"}
               >
-                {isVideoOff ? <VideoOff className="w-4.5 h-4.5" /> : <Video className="w-4.5 h-4.5" />}
+                {isVideoOff ? <VideoOff className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> : <Video className="w-4 h-4 sm:w-4.5 sm:h-4.5" />}
               </button>
 
               <button
@@ -670,14 +698,14 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                     alert("Apresentação de tela iniciada com sucesso!");
                   }
                 }}
-                className={`w-11 h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
+                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition border cursor-pointer ${
                   isScreenSharing
                     ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
                     : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
                 }`}
                 title="Compartilhar Tela"
               >
-                <Laptop className="w-4.5 h-4.5" />
+                <Laptop className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               </button>
 
               <div className="h-6 w-[1px] bg-slate-800 mx-1" />
@@ -685,16 +713,16 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
               <button
                 type="button"
                 onClick={handleEndLive}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-sans font-bold text-xs px-5 py-3 rounded-full transition shadow-lg shadow-rose-600/20 border border-rose-500 flex items-center gap-1.5 cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-sans font-bold text-[11px] sm:text-xs px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-full shadow-lg shadow-rose-600/20 border border-rose-500 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
-                <PhoneOff className="w-4 h-4" />
-                Encerrar Transmissão
+                <PhoneOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                Encerrar
               </button>
             </div>
 
-            <div className="hidden sm:flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-full border border-slate-850 text-xs font-mono text-purple-400">
+            <div className="hidden md:flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-full border border-slate-850 text-xs font-mono text-purple-400">
               <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
-              128-bit AES Secure
+              Secure
             </div>
           </div>
         </div>

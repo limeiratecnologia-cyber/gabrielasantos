@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent } from "react";
 import { Booking, Patient, ActiveTab } from "../types";
 import { APPROACHES, CLINIC_INFO } from "../data";
 import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock, Video, Copy, ClipboardCheck, MapPin } from "lucide-react";
-import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb, savePatientToDb } from "../lib/firebaseService";
+import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb, savePatientToDb, getClinicInfoFromDb } from "../lib/firebaseService";
 
 interface BookingSectionProps {
   setActiveTab?: (tab: ActiveTab) => void;
@@ -25,6 +25,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [notes, setNotes] = useState("");
+  const [clinicInfo, setClinicInfo] = useState<any>(null);
 
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -32,6 +33,24 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+
+  useEffect(() => {
+    getClinicInfoFromDb().then((info) => {
+      setClinicInfo(info);
+    }).catch((err) => {
+      console.error("Erro ao carregar informações da clínica:", err);
+      const saved = localStorage.getItem("serenamente_clinic_info");
+      if (saved) {
+        try {
+          setClinicInfo(JSON.parse(saved));
+        } catch (e) {
+          setClinicInfo(CLINIC_INFO);
+        }
+      } else {
+        setClinicInfo(CLINIC_INFO);
+      }
+    });
+  }, []);
 
   // Load approaches from Firestore
   useEffect(() => {
@@ -429,6 +448,18 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
                     </button>
                   </div>
                 </div>
+
+                {clinicInfo?.showPrices && (
+                  <div className="bg-purple-50/60 border border-purple-100/50 rounded-2xl p-4 flex justify-between items-center animate-fade-in" id="booking-price-badge">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Valor do Atendimento</span>
+                      <span className="text-xs text-slate-500">Formato: {consultationType === "online" ? "Online via Vídeo" : "Presencial no Consultório"}</span>
+                    </div>
+                    <span className="text-lg font-black text-purple-900 font-sans">
+                      {consultationType === "online" ? (clinicInfo?.priceOnline || "R$ 150,00") : (clinicInfo?.pricePresencial || "R$ 180,00")}
+                    </span>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-widest">

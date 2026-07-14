@@ -9,7 +9,7 @@ import {
   query,
   orderBy 
 } from "firebase/firestore";
-import { Booking, Approach, Patient, ClinicalEvolution } from "../types";
+import { Booking, Approach, Patient, ClinicalEvolution, HelpPsiEmergency, PlannedSession } from "../types";
 import { CLINIC_INFO, APPROACHES } from "../data";
 
 // Clinic Info Helpers
@@ -371,3 +371,153 @@ export async function deleteEvolutionFromDb(id: string): Promise<void> {
     }
   }
 }
+
+// ==========================================================================
+// HelpPsi Emergencies Database Helpers
+// ==========================================================================
+export async function getHelpPsiEmergenciesFromDb(): Promise<HelpPsiEmergency[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "helppsi_emergencies"));
+    const emergencies: HelpPsiEmergency[] = [];
+    querySnapshot.forEach((doc) => {
+      emergencies.push({ id: doc.id, ...doc.data() } as HelpPsiEmergency);
+    });
+
+    // Sort descending by timestamp (newest first)
+    emergencies.sort((a, b) => b.timestamp - a.timestamp);
+
+    localStorage.setItem("serenamente_helppsi", JSON.stringify(emergencies));
+    return emergencies;
+  } catch (error) {
+    console.error("Error fetching HelpPsi emergencies:", error);
+    const saved = localStorage.getItem("serenamente_helppsi");
+    return saved ? JSON.parse(saved) : [];
+  }
+}
+
+export async function saveHelpPsiEmergencyToDb(emergency: HelpPsiEmergency): Promise<void> {
+  try {
+    const docRef = doc(db, "helppsi_emergencies", emergency.id);
+    await setDoc(docRef, emergency, { merge: true });
+
+    // Cache locally
+    const saved = localStorage.getItem("serenamente_helppsi");
+    const currentList: HelpPsiEmergency[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(e => e.id === emergency.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...emergency };
+    } else {
+      currentList.push(emergency);
+    }
+    currentList.sort((a, b) => b.timestamp - a.timestamp);
+    localStorage.setItem("serenamente_helppsi", JSON.stringify(currentList));
+  } catch (error) {
+    console.error("Error saving HelpPsi emergency:", error);
+    const saved = localStorage.getItem("serenamente_helppsi");
+    const currentList: HelpPsiEmergency[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(e => e.id === emergency.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...emergency };
+    } else {
+      currentList.push(emergency);
+    }
+    currentList.sort((a, b) => b.timestamp - a.timestamp);
+    localStorage.setItem("serenamente_helppsi", JSON.stringify(currentList));
+  }
+}
+
+export async function deleteHelpPsiEmergencyFromDb(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, "helppsi_emergencies", id);
+    await deleteDoc(docRef);
+
+    // Cache update
+    const saved = localStorage.getItem("serenamente_helppsi");
+    if (saved) {
+      const currentList: HelpPsiEmergency[] = JSON.parse(saved);
+      const filtered = currentList.filter(e => e.id !== id);
+      localStorage.setItem("serenamente_helppsi", JSON.stringify(filtered));
+    }
+  } catch (error) {
+    console.error("Error deleting HelpPsi emergency:", error);
+    const saved = localStorage.getItem("serenamente_helppsi");
+    if (saved) {
+      const currentList: HelpPsiEmergency[] = JSON.parse(saved);
+      const filtered = currentList.filter(e => e.id !== id);
+      localStorage.setItem("serenamente_helppsi", JSON.stringify(filtered));
+    }
+  }
+}
+
+// ==========================================================================
+// Planned Sessions (Treatment Chronogram) Database Helpers
+// ==========================================================================
+export async function getPlannedSessionsFromDb(): Promise<PlannedSession[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "planned_sessions"));
+    const sessions: PlannedSession[] = [];
+    querySnapshot.forEach((doc) => {
+      sessions.push({ id: doc.id, ...doc.data() } as PlannedSession);
+    });
+
+    localStorage.setItem("serenamente_planned_sessions", JSON.stringify(sessions));
+    return sessions;
+  } catch (error) {
+    console.error("Error fetching planned sessions:", error);
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    return saved ? JSON.parse(saved) : [];
+  }
+}
+
+export async function savePlannedSessionToDb(session: PlannedSession): Promise<void> {
+  try {
+    const docRef = doc(db, "planned_sessions", session.id);
+    await setDoc(docRef, session, { merge: true });
+
+    // Update local cache
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    const currentList: PlannedSession[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(s => s.id === session.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...session };
+    } else {
+      currentList.push(session);
+    }
+    localStorage.setItem("serenamente_planned_sessions", JSON.stringify(currentList));
+  } catch (error) {
+    console.error("Error saving planned session:", error);
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    const currentList: PlannedSession[] = saved ? JSON.parse(saved) : [];
+    const index = currentList.findIndex(s => s.id === session.id);
+    if (index >= 0) {
+      currentList[index] = { ...currentList[index], ...session };
+    } else {
+      currentList.push(session);
+    }
+    localStorage.setItem("serenamente_planned_sessions", JSON.stringify(currentList));
+  }
+}
+
+export async function deletePlannedSessionFromDb(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, "planned_sessions", id);
+    await deleteDoc(docRef);
+
+    // Cache update
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    if (saved) {
+      const currentList: PlannedSession[] = JSON.parse(saved);
+      const filtered = currentList.filter(s => s.id !== id);
+      localStorage.setItem("serenamente_planned_sessions", JSON.stringify(filtered));
+    }
+  } catch (error) {
+    console.error("Error deleting planned session:", error);
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    if (saved) {
+      const currentList: PlannedSession[] = JSON.parse(saved);
+      const filtered = currentList.filter(s => s.id !== id);
+      localStorage.setItem("serenamente_planned_sessions", JSON.stringify(filtered));
+    }
+  }
+}
+

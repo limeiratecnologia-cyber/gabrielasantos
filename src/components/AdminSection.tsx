@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import AdminOnlineTab from "./AdminOnlineTab";
-import { Booking, Approach, ActiveTab, Patient, ClinicalEvolution } from "../types";
+import { Booking, Approach, ActiveTab, Patient, ClinicalEvolution, HelpPsiEmergency, PlannedSession } from "../types";
 import { CLINIC_INFO, APPROACHES, IMAGES } from "../data";
 import { 
   getBookingsFromDb, 
@@ -16,13 +16,19 @@ import {
   deletePatientFromDb,
   getEvolutionsFromDb,
   saveEvolutionToDb,
-  deleteEvolutionFromDb
+  deleteEvolutionFromDb,
+  getHelpPsiEmergenciesFromDb,
+  saveHelpPsiEmergencyToDb,
+  deleteHelpPsiEmergencyFromDb,
+  getPlannedSessionsFromDb,
+  savePlannedSessionToDb,
+  deletePlannedSessionFromDb
 } from "../lib/firebaseService";
 import { 
   Lock, Unlock, Calendar, FileText, Check, X, Trash2, 
   Plus, Edit3, Save, Phone, Mail, MapPin, Clock, Award, 
   HelpCircle, CheckCircle, RefreshCw, LogOut, ArrowRight, ClipboardList, Upload,
-  ChevronLeft, ChevronRight, Globe, Users, Search, PlusCircle, Clipboard, Video
+  ChevronLeft, ChevronRight, Globe, Users, Search, PlusCircle, Clipboard, Video, ShieldAlert, Sliders
 } from "lucide-react";
 
 interface AdminSectionProps {
@@ -33,7 +39,7 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
   const [password, setPassword] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "online" | "website" | "approaches">("agenda");
+  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "online" | "website" | "approaches" | "helppsi">("agenda");
   const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
   const [preselectedRoom, setPreselectedRoom] = useState<{ roomCode: string; clientName: string } | null>(null);
 
@@ -217,6 +223,18 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
           <HelpCircle className="w-4.5 h-4.5" />
           Abordagens Clínicas
         </button>
+        <button
+          onClick={() => setAdminTab("helppsi")}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
+            adminTab === "helppsi"
+              ? "border-rose-600 text-rose-700 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-rose-600"
+          }`}
+          id="tab-admin-helppsi"
+        >
+          <ShieldAlert className="w-4.5 h-4.5 text-rose-500" />
+          Emergências HelpPsi
+        </button>
       </div>
 
       {/* Tab Contents */}
@@ -247,6 +265,7 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
         )}
         {adminTab === "website" && <AdminWebsiteTab />}
         {adminTab === "approaches" && <AdminApproachesTab />}
+        {adminTab === "helppsi" && <AdminHelpPsiTab />}
       </div>
     </div>
   );
@@ -280,6 +299,7 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
   // Registered patients selection state
   const [registeredPatients, setRegisteredPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [clinicInfo, setClinicInfo] = useState<any>(null);
 
   // General Calendar States
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
@@ -314,6 +334,22 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
       setRegisteredPatients(list);
     }).catch((err) => {
       console.error("Erro ao carregar pacientes:", err);
+    });
+
+    getClinicInfoFromDb().then((info) => {
+      setClinicInfo(info);
+    }).catch((err) => {
+      console.error("Erro ao carregar informações da clínica:", err);
+      const saved = localStorage.getItem("serenamente_clinic_info");
+      if (saved) {
+        try {
+          setClinicInfo(JSON.parse(saved));
+        } catch (e) {
+          setClinicInfo(CLINIC_INFO);
+        }
+      } else {
+        setClinicInfo(CLINIC_INFO);
+      }
     });
   }, []);
 
@@ -607,6 +643,23 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
                   <MapPin className="w-3.5 h-3.5 text-emerald-500" />
                   Presencial
                 </button>
+              </div>
+            </div>
+
+            {/* Dynamic Price Indicator Block */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-sans font-bold text-slate-500 uppercase tracking-wider">Preço da Sessão</label>
+              <div className="bg-slate-50 border border-slate-100/80 rounded-xl px-3.5 py-2.5 text-xs font-sans text-slate-700 flex items-center justify-between h-[42px]">
+                <span className="font-semibold text-slate-500">Valor Cobrado:</span>
+                <span className="text-purple-700 font-black text-sm">
+                  {clinicInfo?.showPrices ? (
+                    consultationType === "online" 
+                      ? (clinicInfo?.priceOnline || "R$ 150,00") 
+                      : (clinicInfo?.pricePresencial || "R$ 180,00")
+                  ) : (
+                    <span className="text-slate-400 font-medium text-xs">Ocultado (Exibição inativa)</span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -1100,9 +1153,13 @@ interface AdminPatientsTabProps {
 function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [evolutions, setEvolutions] = useState<ClinicalEvolution[]>([]);
+  const [plannedSessions, setPlannedSessions] = useState<PlannedSession[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Patient Sub-tab navigation
+  const [patientSubTab, setPatientSubTab] = useState<"evolutions" | "chronogram">("evolutions");
 
   // Patient manual creation & edit states
   const [showPatientForm, setShowPatientForm] = useState(false);
@@ -1117,6 +1174,14 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
   const [formDate, setFormDate] = useState(new Date().toISOString().split("T")[0]);
   const [formText, setFormText] = useState("");
 
+  // Chronogram (Planned sessions) states
+  const [showSessionForm, setShowSessionForm] = useState(false);
+  const [editingSession, setEditingSession] = useState<PlannedSession | null>(null);
+  const [formSessionNumber, setFormSessionNumber] = useState(1);
+  const [formSessionTitle, setFormSessionTitle] = useState("");
+  const [formSessionGoal, setFormSessionGoal] = useState("");
+  const [formSessionNotes, setFormSessionNotes] = useState("");
+
   const [savingState, setSavingState] = useState(false);
 
   useEffect(() => {
@@ -1128,8 +1193,10 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
     try {
       const pData = await getPatientsFromDb();
       const eData = await getEvolutionsFromDb();
+      const sData = await getPlannedSessionsFromDb();
       setPatients(pData);
       setEvolutions(eData);
+      setPlannedSessions(sData);
     } catch (err) {
       console.error("Erro ao carregar prontuários do Firestore:", err);
     } finally {
@@ -1273,6 +1340,80 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
     }
   };
 
+  // ==========================================================================
+  // Chronogram / Planned sessions CRUD Handlers
+  // ==========================================================================
+  const handleSavePlannedSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPatient) return;
+    if (!formSessionTitle.trim() || !formSessionGoal.trim()) {
+      alert("Por favor, preencha o título e as evoluções/metas previstas para a sessão.");
+      return;
+    }
+
+    setSavingState(true);
+    const newSession: PlannedSession = {
+      id: editingSession ? editingSession.id : `session-${Date.now()}`,
+      patientId: selectedPatient.id,
+      sessionNumber: formSessionNumber,
+      title: formSessionTitle.trim(),
+      expectedGoal: formSessionGoal.trim(),
+      status: editingSession ? editingSession.status : "pending",
+      notes: formSessionNotes.trim() || undefined
+    };
+
+    try {
+      await savePlannedSessionToDb(newSession);
+      await fetchClinicalData();
+
+      // Reset form state
+      setFormSessionTitle("");
+      setFormSessionGoal("");
+      setFormSessionNotes("");
+      setFormSessionNumber(1);
+      setShowSessionForm(false);
+      setEditingSession(null);
+    } catch (err) {
+      console.error("Erro ao salvar sessão planejada:", err);
+      alert("Ocorreu um erro ao salvar o planejamento de sessão.");
+    } finally {
+      setSavingState(false);
+    }
+  };
+
+  const handleEditSessionInit = (session: PlannedSession) => {
+    setEditingSession(session);
+    setFormSessionNumber(session.sessionNumber);
+    setFormSessionTitle(session.title);
+    setFormSessionGoal(session.expectedGoal);
+    setFormSessionNotes(session.notes || "");
+    setShowSessionForm(true);
+  };
+
+  const handleToggleSessionStatus = async (session: PlannedSession) => {
+    const updated: PlannedSession = {
+      ...session,
+      status: session.status === "completed" ? "pending" : "completed"
+    };
+    try {
+      await savePlannedSessionToDb(updated);
+      await fetchClinicalData();
+    } catch (err) {
+      console.error("Erro ao alterar status da sessão planejada:", err);
+    }
+  };
+
+  const handleDeletePlannedSession = async (sessionId: string) => {
+    if (confirm("Deseja realmente remover esta sessão planejada do cronograma de tratamento?")) {
+      try {
+        await deletePlannedSessionFromDb(sessionId);
+        await fetchClinicalData();
+      } catch (err) {
+        console.error("Erro ao excluir sessão planejada:", err);
+      }
+    }
+  };
+
   // Filters
   const filteredPatients = patients.filter(
     (p) =>
@@ -1284,6 +1425,10 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
   const selectedPatientEvs = evolutions
     .filter((e) => e.patientId === selectedPatient?.id)
     .sort((a, b) => new Date(b.createdAt || "").getTime() - new Date(a.createdAt || "").getTime());
+
+  const selectedPatientSessions = plannedSessions
+    .filter((s) => s.patientId === selectedPatient?.id)
+    .sort((a, b) => a.sessionNumber - b.sessionNumber);
 
   if (isLoading) {
     return (
@@ -1577,142 +1722,384 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
               </div>
             </div>
 
-            {/* Action buttons header for timeline notes */}
-            <div className="flex items-center justify-between">
-              <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
-                <Clipboard className="w-4 h-4 text-purple-600" />
-                Histórico de Evolução Terapêutica
-              </h4>
-
-              {!showEvolutionForm && (
-                <button
-                  onClick={() => {
-                    setEditingEvolution(null);
-                    setFormText("");
-                    setFormDate(new Date().toISOString().split("T")[0]);
-                    setShowEvolutionForm(true);
-                  }}
-                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Nova Evolução
-                </button>
-              )}
+            {/* Double Sub-Tab Panel Selection */}
+            <div className="flex border-b border-slate-100 pb-1 gap-4" id="patient-record-subtabs">
+              <button
+                type="button"
+                onClick={() => setPatientSubTab("evolutions")}
+                className={`pb-2.5 font-sans font-bold text-xs transition-all relative cursor-pointer flex items-center gap-1.5 ${
+                  patientSubTab === "evolutions"
+                    ? "text-purple-700 font-black border-b-2 border-purple-600"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                <Clipboard className="w-3.5 h-3.5" />
+                Histórico de Evoluções ({selectedPatientEvs.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPatientSubTab("chronogram");
+                  setFormSessionNumber(selectedPatientSessions.length + 1);
+                }}
+                className={`pb-2.5 font-sans font-bold text-xs transition-all relative cursor-pointer flex items-center gap-1.5 ${
+                  patientSubTab === "chronogram"
+                    ? "text-purple-700 font-black border-b-2 border-purple-600"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                Cronograma de Sessões ({selectedPatientSessions.length})
+              </button>
             </div>
 
-            {/* Note addition/editing form */}
-            {showEvolutionForm && (
-              <form onSubmit={handleSaveEvolution} className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-4 animate-fade-in">
+            {/* Subtab Content: Evolutions */}
+            {patientSubTab === "evolutions" && (
+              <div className="space-y-6 animate-fade-in" id="subtab-evolutions">
+                {/* Action buttons header for timeline notes */}
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-purple-900 uppercase tracking-wider">
-                    {editingEvolution ? "✏️ Editar Evolução Clínica" : "📝 Nova Evolução Clínica"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowEvolutionForm(false);
-                      setEditingEvolution(null);
-                    }}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
+                    <Clipboard className="w-4 h-4 text-purple-600" />
+                    Histórico de Evolução Terapêutica
+                  </h4>
+
+                  {!showEvolutionForm && (
+                    <button
+                      onClick={() => {
+                        setEditingEvolution(null);
+                        setFormText("");
+                        setFormDate(new Date().toISOString().split("T")[0]);
+                        setShowEvolutionForm(true);
+                      }}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Nova Evolução
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div className="sm:col-span-1 space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Data da Consulta</label>
-                    <input
-                      type="date"
-                      value={formDate}
-                      onChange={(e) => setFormDate(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs outline-none focus:border-purple-600 transition"
-                      required
-                    />
-                  </div>
-                  <div className="sm:col-span-3 space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Apontamentos Clínicos (Evolução / Observações)</label>
-                    <textarea
-                      placeholder="Descreva a evolução do paciente nesta sessão, técnicas aplicadas, bem-estar relatado, metas e compromissos acordados..."
-                      rows={4}
-                      value={formText}
-                      onChange={(e) => setFormText(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition leading-relaxed placeholder:text-slate-400"
-                      required
-                    />
-                  </div>
-                </div>
+                {/* Note addition/editing form */}
+                {showEvolutionForm && (
+                  <form onSubmit={handleSaveEvolution} className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-4 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-purple-900 uppercase tracking-wider">
+                        {editingEvolution ? "✏️ Editar Evolução Clínica" : "📝 Nova Evolução Clínica"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEvolutionForm(false);
+                          setEditingEvolution(null);
+                        }}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
 
-                <div className="flex justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowEvolutionForm(false);
-                      setEditingEvolution(null);
-                    }}
-                    className="bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-200 transition cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingState}
-                    className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50"
-                  >
-                    {savingState ? "Gravando..." : "Registrar Sessão"}
-                  </button>
-                </div>
-              </form>
-            )}
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div className="sm:col-span-1 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Data da Consulta</label>
+                        <input
+                          type="date"
+                          value={formDate}
+                          onChange={(e) => setFormDate(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs outline-none focus:border-purple-600 transition"
+                          required
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Apontamentos Clínicos (Evolução / Observações)</label>
+                        <textarea
+                          placeholder="Descreva a evolução do paciente nesta sessão, técnicas aplicadas, bem-estar relatado, metas e compromissos acordados..."
+                          rows={4}
+                          value={formText}
+                          onChange={(e) => setFormText(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition leading-relaxed placeholder:text-slate-400"
+                          required
+                        />
+                      </div>
+                    </div>
 
-            {/* Evolutions Timeline rendering */}
-            <div className="space-y-4">
-              {selectedPatientEvs.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-150">
-                  Nenhum registro de evolução adicionado a este prontuário ainda. Comece clicando em "Nova Evolução".
-                </div>
-              ) : (
-                <div className="relative border-l border-slate-150 pl-5 space-y-6">
-                  {selectedPatientEvs.map((ev, index) => (
-                    <div key={ev.id} className="relative group animate-fade-in">
-                      
-                      {/* Timeline dot */}
-                      <span className="absolute -left-[26px] top-1 bg-white border-2 border-purple-500 rounded-full w-3 h-3 block group-hover:bg-purple-600 transition" />
-                      
-                      <div className="bg-slate-50 hover:bg-slate-100/50 rounded-2xl p-4 border border-slate-150/60 shadow-sm transition space-y-2 relative">
-                        <div className="flex justify-between items-center">
-                          <span className="font-mono text-purple-700 font-extrabold text-[11px] bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full uppercase">
-                            Sessão de {ev.date}
-                          </span>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEvolutionForm(false);
+                          setEditingEvolution(null);
+                        }}
+                        className="bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-200 transition cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingState}
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50"
+                      >
+                        {savingState ? "Gravando..." : "Registrar Sessão"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Evolutions Timeline rendering */}
+                <div className="space-y-4">
+                  {selectedPatientEvs.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-150">
+                      Nenhum registro de evolução adicionado a este prontuário ainda. Comece clicando em "Nova Evolução".
+                    </div>
+                  ) : (
+                    <div className="relative border-l border-slate-150 pl-5 space-y-6">
+                      {selectedPatientEvs.map((ev) => (
+                        <div key={ev.id} className="relative group animate-fade-in">
+                          {/* Timeline dot */}
+                          <span className="absolute -left-[26px] top-1 bg-white border-2 border-purple-500 rounded-full w-3 h-3 block group-hover:bg-purple-600 transition" />
                           
-                          <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
-                            <button
-                              onClick={() => handleEditEvolutionInit(ev)}
-                              className="text-slate-400 hover:text-purple-600 p-1 rounded hover:bg-white transition cursor-pointer"
-                              title="Editar anotação clínica"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteEvolution(ev.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-white transition cursor-pointer"
-                              title="Excluir anotação clínica"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          <div className="bg-slate-50 hover:bg-slate-100/50 rounded-2xl p-4 border border-slate-150/60 shadow-sm transition space-y-2 relative">
+                            <div className="flex justify-between items-center">
+                              <span className="font-mono text-purple-700 font-extrabold text-[11px] bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full uppercase">
+                                Sessão de {ev.date}
+                              </span>
+                              
+                              <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditEvolutionInit(ev)}
+                                  className="text-slate-400 hover:text-purple-600 p-1 rounded hover:bg-white transition cursor-pointer"
+                                  title="Editar anotação clínica"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteEvolution(ev.id)}
+                                  className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-white transition cursor-pointer"
+                                  title="Excluir anotação clínica"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <p className="text-slate-600 leading-relaxed font-sans text-xs whitespace-pre-line">
+                              {ev.text}
+                            </p>
                           </div>
                         </div>
-
-                        <p className="text-slate-600 leading-relaxed font-sans text-xs whitespace-pre-line">
-                          {ev.text}
-                        </p>
-                      </div>
-
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {/* Subtab Content: Treatment Chronogram */}
+            {patientSubTab === "chronogram" && (
+              <div className="space-y-6 animate-fade-in" id="subtab-chronogram">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
+                    <ClipboardList className="w-4 h-4 text-purple-600" />
+                    Cronograma de Sessões e Evoluções Planejadas
+                  </h4>
+
+                  {!showSessionForm && (
+                    <button
+                      onClick={() => {
+                        setEditingSession(null);
+                        setFormSessionTitle("");
+                        setFormSessionGoal("");
+                        setFormSessionNotes("");
+                        setFormSessionNumber(selectedPatientSessions.length + 1);
+                        setShowSessionForm(true);
+                      }}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Novo Encontro
+                    </button>
+                  )}
+                </div>
+
+                {/* Session addition/editing form */}
+                {showSessionForm && (
+                  <form onSubmit={handleSavePlannedSession} className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-4 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-purple-900 uppercase tracking-wider">
+                        {editingSession ? "✏️ Editar Planejamento de Sessão" : "📝 Planejar Nova Sessão"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSessionForm(false);
+                          setEditingSession(null);
+                        }}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div className="sm:col-span-1 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Número da Sessão</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={formSessionNumber}
+                          onChange={(e) => setFormSessionNumber(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs outline-none focus:border-purple-600 transition"
+                          required
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Título do Encontro / Foco Principal</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Sessão 1 - Psicoeducação e Aliança Terapêutica"
+                          value={formSessionTitle}
+                          onChange={(e) => setFormSessionTitle(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition"
+                          required
+                        />
+                      </div>
+                      <div className="sm:col-span-4 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Evoluções e Metas Planejadas a Serem Feitas</label>
+                        <textarea
+                          placeholder="Descreva as técnicas a aplicar e o progresso clínico planejado para esta sessão (ex: reestruturação de pensamentos automáticos, exposição gradual)..."
+                          rows={3}
+                          value={formSessionGoal}
+                          onChange={(e) => setFormSessionGoal(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition leading-relaxed placeholder:text-slate-400"
+                          required
+                        />
+                      </div>
+                      <div className="sm:col-span-4 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Observações Complementares (Opcional)</label>
+                        <input
+                          type="text"
+                          placeholder="Observações sobre tarefas de casa ou recursos a fornecer..."
+                          value={formSessionNotes}
+                          onChange={(e) => setFormSessionNotes(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-purple-600 transition"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSessionForm(false);
+                          setEditingSession(null);
+                        }}
+                        className="bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-200 transition cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingState}
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50"
+                      >
+                        {savingState ? "Gravando..." : "Salvar no Cronograma"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Sessions Chronogram list */}
+                <div className="space-y-4">
+                  {selectedPatientSessions.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-150">
+                      Nenhuma sessão adicionada ao cronograma terapêutico ainda. Defina os encontros clicando em "Novo Encontro".
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {selectedPatientSessions.map((session) => {
+                        const isCompleted = session.status === "completed";
+                        return (
+                          <div 
+                            key={session.id} 
+                            className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
+                              isCompleted 
+                                ? "bg-emerald-50/20 border-emerald-100/50" 
+                                : "bg-slate-50 border-slate-150"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3 flex-1">
+                              {/* Toggle Checkbox Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSessionStatus(session)}
+                                className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                                  isCompleted 
+                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" 
+                                    : "border-slate-300 hover:border-purple-600 bg-white"
+                                }`}
+                                title={isCompleted ? "Marcar como pendente" : "Marcar como realizada"}
+                              >
+                                {isCompleted && <Check className="w-3.5 h-3.5" />}
+                              </button>
+                              
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono text-[10px] font-extrabold bg-purple-50 text-purple-700 border border-purple-100 px-2 py-0.5 rounded-full uppercase">
+                                    Encontro #{session.sessionNumber}
+                                  </span>
+                                  <h5 className={`font-bold text-xs sm:text-sm font-sans ${isCompleted ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                                    {session.title}
+                                  </h5>
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase ${
+                                    isCompleted ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                                  }`}>
+                                    {isCompleted ? "Concluída" : "Planejada"}
+                                  </span>
+                                </div>
+                                
+                                <div className="space-y-1">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Evoluções & Metas Clínicas:</span>
+                                  <p className={`text-xs leading-relaxed font-sans ${isCompleted ? "text-slate-400" : "text-slate-600"}`}>
+                                    {session.expectedGoal}
+                                  </p>
+                                </div>
+                                
+                                {session.notes && (
+                                  <div className="bg-white/80 rounded-xl p-2.5 border border-slate-100 text-[11px] font-sans text-slate-500 italic mt-1">
+                                    📌 {session.notes}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="flex sm:flex-col gap-1.5 self-end sm:self-auto shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleEditSessionInit(session)}
+                                className="text-slate-400 hover:text-purple-600 p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-100 transition cursor-pointer flex items-center justify-center"
+                                title="Editar planejamento de sessão"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePlannedSession(session.id)}
+                                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-100 transition cursor-pointer flex items-center justify-center"
+                                title="Excluir do cronograma"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
           </div>
         ) : (
@@ -2485,6 +2872,75 @@ function AdminWebsiteTab() {
         </div>
       </div>
 
+      {/* Pricing Configuration Block */}
+      <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-md space-y-6">
+        <div>
+          <h4 className="font-sans font-extrabold text-slate-900 text-base flex items-center gap-2 border-b border-slate-50 pb-3">
+            <Sliders className="w-5 h-5 text-purple-600" />
+            Configuração de Preços de Consulta
+          </h4>
+          <p className="text-xs text-slate-500 font-sans mt-1">
+            Defina os valores cobrados para cada modalidade de atendimento. Você pode optar por exibir ou ocultar os valores nas telas de agendamento e acionamento de emergências.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-wider">Atendimento Online *</label>
+            <input
+              type="text"
+              required
+              placeholder="Ex: R$ 150,00"
+              value={info.priceOnline || ""}
+              onChange={(e) => updateField("priceOnline", e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs sm:text-sm font-sans outline-none text-slate-800 focus:bg-white focus:border-purple-600 transition font-sans"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-wider">Atendimento Presencial *</label>
+            <input
+              type="text"
+              required
+              placeholder="Ex: R$ 180,00"
+              value={info.pricePresencial || ""}
+              onChange={(e) => updateField("pricePresencial", e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs sm:text-sm font-sans outline-none text-slate-800 focus:bg-white focus:border-purple-600 transition font-sans"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-wider font-sans">Canal de Emergência HelpPsi *</label>
+            <input
+              type="text"
+              required
+              placeholder="Ex: R$ 150,00"
+              value={info.priceHelpPsi || ""}
+              onChange={(e) => updateField("priceHelpPsi", e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs sm:text-sm font-sans outline-none text-slate-800 focus:bg-white focus:border-purple-600 transition font-sans"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 bg-purple-50/40 p-4 rounded-2xl border border-purple-100/40 mt-4">
+          <input
+            id="checkbox-show-prices"
+            type="checkbox"
+            checked={!!info.showPrices}
+            onChange={(e) => updateField("showPrices", e.target.checked)}
+            className="w-5 h-5 accent-purple-600 cursor-pointer rounded"
+          />
+          <div className="space-y-0.5">
+            <label htmlFor="checkbox-show-prices" className="block text-xs font-sans font-extrabold text-purple-900 cursor-pointer">
+              Exibir valores nas telas de agendamento e SOS HelpPsi
+            </label>
+            <p className="text-[10px] text-purple-600/80 font-sans">
+              Se desmarcado, os preços não serão exibidos e o agendamento mostrará as modalidades sem custo visível direto.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Save Button Floating/Sticky bar */}
       <div className="flex justify-end pt-2">
         <button
@@ -2773,3 +3229,193 @@ function AdminApproachesTab() {
     </div>
   );
 }
+
+/* ==========================================================================
+   SUB-COMPONENT: ADMIN HELPPSI TAB (EMERGENCY REQUESTS)
+   ========================================================================== */
+function AdminHelpPsiTab() {
+  const [emergencies, setEmergencies] = useState<HelpPsiEmergency[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const loadEmergencies = () => {
+    setLoading(true);
+    getHelpPsiEmergenciesFromDb().then((list) => {
+      setEmergencies(list);
+      setLoading(false);
+    });
+  };
+
+  useEffect(() => {
+    loadEmergencies();
+  }, []);
+
+  const handleToggleStatus = async (item: HelpPsiEmergency) => {
+    const updatedStatus: "pending" | "resolved" = item.status === "pending" ? "resolved" : "pending";
+    const updatedItem: HelpPsiEmergency = { ...item, status: updatedStatus };
+    try {
+      await saveHelpPsiEmergencyToDb(updatedItem);
+      setSuccessMsg("Status de emergência atualizado!");
+      setTimeout(() => setSuccessMsg(""), 3000);
+      loadEmergencies();
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao atualizar status da emergência.");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm("Tem certeza que deseja excluir este registro de emergência permanentemente?")) {
+      try {
+        await deleteHelpPsiEmergencyFromDb(id);
+        setSuccessMsg("Registro de emergência excluído!");
+        setTimeout(() => setSuccessMsg(""), 3000);
+        loadEmergencies();
+      } catch (err) {
+        console.error(err);
+        alert("Erro ao excluir emergência.");
+      }
+    }
+  };
+
+  const pendingCount = emergencies.filter(e => e.status === "pending").length;
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-md space-y-6" id="admin-helppsi-section">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
+        <div className="space-y-1">
+          <h3 className="font-sans font-extrabold text-slate-900 text-xl tracking-tight">
+            🚑 Emergências SOS HelpPsi
+          </h3>
+          <p className="font-sans text-slate-500 text-xs sm:text-sm">
+            Visualize e faça o acompanhamento em tempo real dos pacientes que acionaram o suporte de urgência no site.
+          </p>
+        </div>
+
+        <button
+          onClick={loadEmergencies}
+          className="bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs px-4 py-2 rounded-xl border border-purple-100 transition flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Atualizar Lista
+        </button>
+      </div>
+
+      {successMsg && (
+        <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl p-4 flex gap-2 items-center text-xs font-sans">
+          <CheckCircle className="w-4 h-4 text-emerald-600" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {/* Stats counter */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-rose-50/70 border border-rose-100/60 rounded-2xl p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-rose-100/60 flex items-center justify-center text-rose-600">
+            <ShieldAlert className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <p className="text-[10px] font-sans font-bold text-rose-800 uppercase tracking-wider">Pendentes de Retorno</p>
+            <p className="text-2xl font-black text-rose-950 font-sans">{pendingCount} urgências</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+            <CheckCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-[10px] font-sans font-bold text-slate-500 uppercase tracking-wider font-sans">Histórico Total</p>
+            <p className="text-2xl font-black text-slate-800 font-sans">{emergencies.length} chamados</p>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-slate-400 text-xs font-sans">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-400" />
+          Buscando registros de emergência no Firestore...
+        </div>
+      ) : emergencies.length === 0 ? (
+        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+          <p className="text-sm font-bold text-slate-500 font-sans">Nenhuma emergência registrada</p>
+          <p className="text-xs text-slate-400 font-sans mt-1">Os pacientes que usarem o botão SOS HelpPsi aparecerão listados aqui.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[600px]">
+            <thead>
+              <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">
+                <th className="py-4">Paciente</th>
+                <th className="py-4">Contato / WhatsApp</th>
+                <th className="py-4">Data do Chamado</th>
+                <th className="py-4">Status</th>
+                <th className="py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+              {emergencies.map((e) => (
+                <tr key={e.id} className={`hover:bg-slate-50/50 transition ${e.status === 'pending' ? 'bg-rose-50/10' : ''}`}>
+                  <td className="py-4 pr-3 font-bold text-slate-900 font-sans">{e.patientName}</td>
+                  <td className="py-4 pr-3 font-mono font-bold text-slate-600">
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      {e.whatsapp}
+                    </span>
+                  </td>
+                  <td className="py-4 pr-3 font-sans text-slate-500">{e.createdAt}</td>
+                  <td className="py-4 pr-3">
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider font-sans ${
+                      e.status === "pending"
+                        ? "bg-rose-100 text-rose-800"
+                        : "bg-emerald-100 text-emerald-800"
+                    }`}>
+                      {e.status === "pending" ? "Pendente" : "Resolvido"}
+                    </span>
+                  </td>
+                  <td className="py-4 text-right">
+                    <div className="flex items-center justify-end gap-2.5">
+                      <button
+                        onClick={() => {
+                          const formattedWhatsapp = e.whatsapp.replace(/\D/g, "");
+                          const text = encodeURIComponent(`Olá ${e.patientName}, sou a Dra. Gabriela. Recebi o seu chamado de SOS HelpPsi no site. Estou entrando em contato para conversarmos imediatamente.`);
+                          window.open(`https://wa.me/${formattedWhatsapp}?text=${text}`, "_blank");
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
+                        title="Entrar em contato via WhatsApp"
+                      >
+                        <Phone className="w-3 h-3" />
+                        Chamar
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleStatus(e)}
+                        className={`font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg border transition cursor-pointer ${
+                          e.status === "pending"
+                            ? "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                            : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+                        }`}
+                        title={e.status === "pending" ? "Marcar como Resolvido" : "Reabrir Chamado"}
+                      >
+                        {e.status === "pending" ? "Resolver" : "Reabrir"}
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(e.id)}
+                        className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
+                        title="Excluir"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+

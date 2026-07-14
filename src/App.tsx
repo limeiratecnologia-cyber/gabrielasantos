@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { ActiveTab } from "./types";
 import AestheticHeader from "./components/AestheticHeader";
 import HomeSection from "./components/HomeSection";
@@ -12,7 +12,8 @@ import BookingSection from "./components/BookingSection";
 import OnlineConsultationSection from "./components/OnlineConsultationSection";
 import AdminSection from "./components/AdminSection";
 import { CLINIC_INFO, IMAGES } from "./data";
-import { getClinicInfoFromDb } from "./lib/firebaseService";
+import { getClinicInfoFromDb, saveHelpPsiEmergencyToDb } from "./lib/firebaseService";
+import { Phone, ShieldAlert, X, MessageSquare, Check, AlertCircle, Heart } from "lucide-react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
@@ -32,6 +33,46 @@ export default function App() {
   const [isSplashLoading, setIsSplashLoading] = useState(true);
   const [isTransitionLoading, setIsTransitionLoading] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
+
+  // HelpPsi Emergency States
+  const [showHelpPsiModal, setShowHelpPsiModal] = useState(false);
+  const [helpName, setHelpName] = useState("");
+  const [helpWhatsapp, setHelpWhatsapp] = useState("");
+  const [helpSuccess, setHelpSuccess] = useState(false);
+  const [isSubmittingHelp, setIsSubmittingHelp] = useState(false);
+
+  const handleHelpPsiSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!helpName.trim() || !helpWhatsapp.trim()) {
+      alert("Por favor, preencha todos os campos.");
+      return;
+    }
+
+    setIsSubmittingHelp(true);
+    const emergencyId = `helppsi-${Date.now()}`;
+    const newEmergency = {
+      id: emergencyId,
+      patientName: helpName.trim(),
+      whatsapp: helpWhatsapp.trim(),
+      status: "pending" as const,
+      createdAt: new Date().toLocaleString("pt-BR"),
+      timestamp: Date.now()
+    };
+
+    try {
+      await saveHelpPsiEmergencyToDb(newEmergency);
+      setHelpSuccess(true);
+    } catch (err) {
+      console.error("Erro ao enviar emergência:", err);
+      // Direct emergency WhatsApp fallback
+      const formattedWhatsapp = clinicInfo.clinicDetails?.phone?.replace(/\D/g, "") || "5511987654321";
+      const waMsg = encodeURIComponent(`🚨 *SOS HelpPsi - EMERGÊNCIA CLÍNICA*\n\nOlá, me chamo ${helpName.trim()} e acabei de acionar o HelpPsi. Preciso conversar com urgência.\nContato: ${helpWhatsapp.trim()}`);
+      window.open(`https://wa.me/${formattedWhatsapp}?text=${waMsg}`, "_blank");
+      setHelpSuccess(true);
+    } finally {
+      setIsSubmittingHelp(false);
+    }
+  };
 
   // Splash screen duration of 2 seconds
   useEffect(() => {
@@ -231,6 +272,160 @@ export default function App() {
             {renderActiveSection()}
           </div>
         </main>
+
+        {/* Floating SOS HelpPsi Button */}
+        <div className="fixed bottom-6 right-6 z-40 animate-fade-in">
+          <button
+            id="btn-trigger-helppsi"
+            onClick={() => {
+              setHelpSuccess(false);
+              setHelpName("");
+              setHelpWhatsapp("");
+              setShowHelpPsiModal(true);
+            }}
+            className="relative group bg-rose-600 hover:bg-rose-700 hover:scale-105 active:scale-95 text-white font-sans font-black text-xs sm:text-sm px-5 py-3.5 rounded-full shadow-2xl shadow-rose-600/30 flex items-center gap-2 transition-all duration-300 cursor-pointer border border-rose-500 overflow-hidden"
+          >
+            <span className="absolute inset-0 w-full h-full bg-white/10 animate-pulse" />
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+            </span>
+            <span>SOS HelpPsi</span>
+          </button>
+        </div>
+
+        {/* HelpPsi Emergency Modal Overlay */}
+        {showHelpPsiModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in" id="helppsi-modal">
+            <div className="bg-white rounded-3xl max-w-md w-full border border-slate-100 p-6 md:p-8 shadow-2xl space-y-6 relative animate-slide-in">
+              <button
+                onClick={() => setShowHelpPsiModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-50 transition cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {!helpSuccess ? (
+                <form onSubmit={handleHelpPsiSubmit} className="space-y-5">
+                  <div className="text-center space-y-2">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center shadow-inner">
+                      <ShieldAlert className="w-6 h-6 text-rose-600 animate-pulse" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-sans font-extrabold text-slate-950 text-xl tracking-tight">
+                        Suporte de Urgência - HelpPsi
+                      </h3>
+                      <p className="font-sans text-slate-500 text-xs leading-relaxed">
+                        Precisa conversar com urgência? Acione o HelpPsi. A psicóloga receberá um alerta em tempo real e entrará em contato via WhatsApp o mais rápido possível.
+                      </p>
+                    </div>
+                  </div>
+
+                  {clinicInfo.showPrices && (
+                    <div className="bg-amber-50/70 border border-amber-100/60 rounded-2xl p-4 text-center">
+                      <p className="text-[10px] font-sans font-bold text-amber-800 uppercase tracking-wider">
+                        Valor do Atendimento Emergencial
+                      </p>
+                      <p className="text-lg font-black text-amber-950 font-sans mt-0.5">
+                        {clinicInfo.priceHelpPsi || "R$ 150,00"}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-sans font-bold text-slate-500 uppercase tracking-widest">
+                        Seu Nome Completo
+                      </label>
+                      <input
+                        id="helppsi-name-input"
+                        type="text"
+                        required
+                        placeholder="Ex: Carlos Oliveira"
+                        value={helpName}
+                        onChange={(e) => setHelpName(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 focus:border-rose-600 focus:bg-white rounded-2xl px-4 py-3 text-xs sm:text-sm font-sans outline-none text-slate-800 transition"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-sans font-bold text-slate-500 uppercase tracking-widest">
+                        Seu WhatsApp com DDD
+                      </label>
+                      <input
+                        id="helppsi-phone-input"
+                        type="tel"
+                        required
+                        placeholder="Ex: (11) 98765-4321"
+                        value={helpWhatsapp}
+                        onChange={(e) => setHelpWhatsapp(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 focus:border-rose-600 focus:bg-white rounded-2xl px-4 py-3 text-xs sm:text-sm font-sans outline-none text-slate-800 transition font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowHelpPsiModal(false)}
+                      className="w-full sm:w-1/3 bg-slate-50 hover:bg-slate-100 text-slate-600 font-sans font-bold text-xs py-3 rounded-2xl border border-slate-100 hover:border-slate-200 transition text-center cursor-pointer"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      id="helppsi-submit-btn"
+                      type="submit"
+                      disabled={isSubmittingHelp}
+                      className="w-full sm:w-2/3 bg-rose-600 hover:bg-rose-700 text-white font-sans font-bold text-xs py-3 rounded-2xl shadow-lg shadow-rose-600/10 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 font-sans"
+                    >
+                      <Phone className="w-4 h-4" />
+                      {isSubmittingHelp ? "Acionando..." : "Acionar SOS HelpPsi"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="text-center space-y-5 py-2 animate-fade-in">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-inner text-emerald-600">
+                    <Check className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <h3 className="font-sans font-extrabold text-slate-900 text-xl tracking-tight">
+                      Emergência Recebida!
+                    </h3>
+                    <p className="font-sans text-slate-500 text-xs leading-relaxed">
+                      Olá <strong>{helpName}</strong>, seu pedido de suporte HelpPsi foi transmitido com sucesso à <strong>{clinicInfo.therapistName}</strong>.
+                    </p>
+                    <p className="font-sans text-slate-400 text-[11px] leading-relaxed">
+                      Para acelerar seu contato, você também pode clicar no botão abaixo para abrir uma conversa direta no WhatsApp agora mesmo.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <button
+                      onClick={() => {
+                        const psychologistPhone = clinicInfo.clinicDetails?.phone?.replace(/\D/g, "") || "5511987654321";
+                        const text = encodeURIComponent(`🚨 *SOS HelpPsi - EMERGÊNCIA CLÍNICA*\n\nOlá Dra. Gabriela Santos, acabei de acionar o HelpPsi no site. Preciso de suporte psicológico urgente.\n\nNome: *${helpName}*\nWhatsApp: *${helpWhatsapp}*`);
+                        window.open(`https://wa.me/${psychologistPhone}?text=${text}`, "_blank");
+                      }}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-sans font-bold text-xs py-3.5 rounded-2xl shadow-lg shadow-green-600/10 transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      Falar no WhatsApp Agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowHelpPsiModal(false)}
+                      className="w-full text-slate-400 hover:text-slate-600 font-sans font-bold text-[11px] py-1 transition cursor-pointer"
+                    >
+                      Fechar Janela
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
