@@ -32,6 +32,7 @@ export interface Booking {
   notes?: string;
   status: "scheduled" | "completed" | "cancelled";
   roomCode?: string;
+  consultationType?: "online" | "presencial";
 }
 
 export interface Patient {

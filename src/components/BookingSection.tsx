@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from "react";
 import { Booking, Patient, ActiveTab } from "../types";
-import { APPROACHES } from "../data";
-import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock, Video, Copy, ClipboardCheck } from "lucide-react";
+import { APPROACHES, CLINIC_INFO } from "../data";
+import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock, Video, Copy, ClipboardCheck, MapPin } from "lucide-react";
 import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb, savePatientToDb } from "../lib/firebaseService";
 
 interface BookingSectionProps {
@@ -21,6 +21,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   const [clientEmail, setClientEmail] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [approach, setApproach] = useState("");
+  const [consultationType, setConsultationType] = useState<"online" | "presencial">("online");
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [notes, setNotes] = useState("");
@@ -110,7 +111,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
       return;
     }
 
-    const generatedRoomCode = "SRM-" + Math.floor(1000 + Math.random() * 9000);
+    const generatedRoomCode = consultationType === "online" ? "SRM-" + Math.floor(1000 + Math.random() * 9000) : undefined;
 
     const newBooking: Booking = {
       id: `booking-${Date.now()}`,
@@ -122,7 +123,8 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
       timeSlot,
       notes,
       status: "scheduled",
-      roomCode: generatedRoomCode
+      roomCode: generatedRoomCode,
+      consultationType
     };
 
     // Register patient in patient database
@@ -159,6 +161,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
     setClientEmail("");
     setClientPhone("");
     setApproach(approaches[0]?.fullName || "");
+    setConsultationType("online");
     setDate("");
     setTimeSlot("");
     setNotes("");
@@ -216,7 +219,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
                 </div>
               </div>
 
-              {lastBooking?.roomCode && (
+              {lastBooking?.roomCode && lastBooking?.consultationType !== "presencial" && (
                 <div className="bg-white rounded-2xl p-4 border border-purple-100 space-y-3">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div>
@@ -264,6 +267,23 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
                   </div>
                   <p className="text-[11px] text-slate-500 font-sans leading-relaxed">
                     💡 <strong>Como funciona?</strong> Guarde este código. No dia e horário da consulta agendada, acesse a aba <strong>Consulta Online</strong> no menu superior, insira o código acima e ative sua chamada de vídeo instantaneamente.
+                  </p>
+                </div>
+              )}
+
+              {lastBooking?.consultationType === "presencial" && (
+                <div className="bg-white rounded-2xl p-4 border border-emerald-100 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider font-sans block">
+                      ENDEREÇO DA CONSULTA PRESENCIAL
+                    </span>
+                  </div>
+                  <p className="text-slate-800 font-medium text-xs font-sans">
+                    {CLINIC_INFO.clinicDetails.address}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-sans leading-relaxed">
+                    💡 <strong>Consulta Presencial:</strong> Por favor, chegue com 10 a 15 minutos de antecedência no consultório. Se precisar alterar ou cancelar, nos envie uma mensagem.
                   </p>
                 </div>
               )}
@@ -377,6 +397,39 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
 
             {step === 2 && (
               <div className="space-y-5 animate-fade-in">
+                {/* Formato de Atendimento Toggle */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-widest">
+                    Formato de Atendimento *
+                  </label>
+                  <div className="grid grid-cols-2 gap-3 p-1 bg-slate-100 rounded-2xl border border-slate-200/60 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => setConsultationType("online")}
+                      className={`py-3.5 rounded-xl text-xs font-sans font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        consultationType === "online"
+                          ? "bg-white text-purple-700 shadow-md shadow-slate-200/50 scale-[1.02] border border-slate-100"
+                          : "text-slate-500 hover:text-slate-700 hover:bg-white/50"
+                      }`}
+                    >
+                      <Video className={`w-4.5 h-4.5 ${consultationType === "online" ? "text-purple-600" : "text-slate-400"}`} />
+                      <span>Online (Vídeo)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConsultationType("presencial")}
+                      className={`py-3.5 rounded-xl text-xs font-sans font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        consultationType === "presencial"
+                          ? "bg-white text-emerald-700 shadow-md shadow-slate-200/50 scale-[1.02] border border-slate-100"
+                          : "text-slate-500 hover:text-slate-700 hover:bg-white/50"
+                      }`}
+                    >
+                      <MapPin className={`w-4.5 h-4.5 ${consultationType === "presencial" ? "text-emerald-600" : "text-slate-400"}`} />
+                      <span>Presencial</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="block text-xs font-sans font-bold text-slate-600 uppercase tracking-widest">
                     Abordagem de Preferência *
@@ -656,11 +709,24 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
                         <h5 className="font-sans font-bold text-slate-900 text-xs sm:text-sm">
                           {b.approach}
                         </h5>
-                        <p className="font-sans text-slate-500 text-[11px] flex items-center gap-1">
+                        <p className="font-sans text-slate-500 text-[11px] flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-purple-600" /> {b.date}
                         </p>
-                        <p className="font-sans text-slate-500 text-[11px] flex items-center gap-1">
+                        <p className="font-sans text-slate-500 text-[11px] flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-purple-600" /> {b.timeSlot}
+                        </p>
+                        <p className="font-sans text-[11px] flex items-center gap-1.5">
+                          {b.consultationType === "presencial" ? (
+                            <>
+                              <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-emerald-700 font-bold">📍 Presencial (Consultório)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Video className="w-3.5 h-3.5 text-purple-600" />
+                              <span className="text-purple-700 font-bold">💻 Online (Vídeo)</span>
+                            </>
+                          )}
                         </p>
                       </div>
 

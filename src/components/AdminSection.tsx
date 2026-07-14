@@ -228,6 +228,7 @@ function AdminAgendaTab() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [approach, setApproach] = useState("Terapia Cognitivo-Comportamental");
+  const [consultationType, setConsultationType] = useState<"online" | "presencial">("online");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -305,6 +306,8 @@ function AdminAgendaTab() {
       return;
     }
 
+    const generatedRoomCode = consultationType === "online" ? "SRM-" + Math.floor(1000 + Math.random() * 9000) : undefined;
+
     const newBooking: Booking = {
       id: `booking-${Date.now()}`,
       clientName: name,
@@ -314,7 +317,9 @@ function AdminAgendaTab() {
       date: formattedDate,
       timeSlot: time,
       notes,
-      status: "scheduled"
+      status: "scheduled",
+      roomCode: generatedRoomCode,
+      consultationType
     };
 
     saveBookingToDb(newBooking).then(() => {
@@ -328,6 +333,7 @@ function AdminAgendaTab() {
     setEmail("");
     setPhone("");
     setApproach("Terapia Cognitivo-Comportamental");
+    setConsultationType("online");
     setDate("");
     setTime("");
     setNotes("");
@@ -453,6 +459,36 @@ function AdminAgendaTab() {
                 <option value="Terapia Sistêmica">Terapia Sistêmica</option>
                 <option value="Consulta Geral / Primeira Entrevista">Consulta Geral / Primeira Entrevista</option>
               </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[11px] font-sans font-bold text-slate-500 uppercase tracking-wider">Formato de Atendimento *</label>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/50">
+                <button
+                  type="button"
+                  onClick={() => setConsultationType("online")}
+                  className={`py-1.5 rounded-lg text-[11px] font-sans font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                    consultationType === "online"
+                      ? "bg-white text-purple-700 shadow-sm border border-slate-100"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Video className="w-3.5 h-3.5 text-purple-500" />
+                  Online
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConsultationType("presencial")}
+                  className={`py-1.5 rounded-lg text-[11px] font-sans font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                    consultationType === "presencial"
+                      ? "bg-white text-emerald-700 shadow-sm border border-slate-100"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                  Presencial
+                </button>
+              </div>
             </div>
 
             {/* Calendário e Horários Interativos no Formulário */}
@@ -817,12 +853,23 @@ function AdminAgendaTab() {
                     </td>
                     <td className="p-4">
                       <div className="font-bold text-slate-800">{b.clientName}</div>
-                      {b.roomCode && (
-                        <div className="inline-flex items-center gap-1 mt-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-mono font-bold text-[10px] border border-purple-100">
-                          <Video className="w-3 h-3 text-purple-500" />
-                          SALA: {b.roomCode}
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(b.consultationType || (b.roomCode ? "online" : "presencial")) === "presencial" ? (
+                          <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-emerald-100">
+                            📍 Presencial
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-purple-100">
+                            💻 Online
+                          </span>
+                        )}
+                        {b.roomCode && (b.consultationType || (b.roomCode ? "online" : "presencial")) !== "presencial" && (
+                          <div className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-mono font-bold text-[10px] border border-purple-100">
+                            <Video className="w-3 h-3 text-purple-500" />
+                            SALA: {b.roomCode}
+                          </div>
+                        )}
+                      </div>
                       {b.notes && (
                         <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={b.notes}>
                           Obs: {b.notes}
