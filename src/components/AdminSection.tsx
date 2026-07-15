@@ -321,6 +321,7 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
     // Real-time listener for bookings
     const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
     const unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
+      console.log(`[Firestore] Bookings atualizados em tempo real. Documentos: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
       const list: Booking[] = [];
       snapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() } as Booking);
@@ -328,13 +329,14 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
       setBookings(list);
       localStorage.setItem("serenamente_bookings", JSON.stringify(list));
     }, (err) => {
-      console.error("Erro no onSnapshot do bookings:", err);
+      console.error("[Firestore ERROR] Falha na subscrição em tempo real de bookings:", err);
       getBookingsFromDb().then(setBookings).catch(console.error);
     });
 
     // Real-time listener for registered patients
     const patientsQuery = query(collection(db, "patients"), orderBy("name", "asc"));
     const unsubscribePatients = onSnapshot(patientsQuery, (snapshot) => {
+      console.log(`[Firestore] Pacientes registrados atualizados em tempo real. Documentos: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
       const list: Patient[] = [];
       snapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() } as Patient);
@@ -342,7 +344,7 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
       setRegisteredPatients(list);
       localStorage.setItem("serenamente_patients", JSON.stringify(list));
     }, (err) => {
-      console.error("Erro no onSnapshot do patients:", err);
+      console.error("[Firestore ERROR] Falha na subscrição em tempo real de pacientes:", err);
       getPatientsFromDb().then(setRegisteredPatients).catch(console.error);
     });
 
@@ -386,22 +388,16 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
     const found = bookings.find(b => b.id === id);
     if (found) {
       const updatedBooking = { ...found, status: newStatus };
-      saveBookingToDb(updatedBooking).then(() => {
-        setBookings(prev => prev.map(b => b.id === id ? updatedBooking : b));
-      }).catch((err) => {
+      saveBookingToDb(updatedBooking).catch((err) => {
         console.error("Erro ao alterar status no Firestore:", err);
-        setBookings(prev => prev.map(b => b.id === id ? updatedBooking : b));
       });
     }
   };
 
   const handleDeleteBooking = (id: string) => {
     if (confirm("Tem certeza de que deseja apagar permanentemente este registro de agendamento?")) {
-      deleteBookingFromDb(id).then(() => {
-        setBookings(prev => prev.filter(b => b.id !== id));
-      }).catch((err) => {
+      deleteBookingFromDb(id).catch((err) => {
         console.error("Erro ao excluir agendamento do Firestore:", err);
-        setBookings(prev => prev.filter(b => b.id !== id));
       });
     }
   };
@@ -440,11 +436,8 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
       consultationType
     };
 
-    saveBookingToDb(newBooking).then(() => {
-      setBookings(prev => [newBooking, ...prev]);
-    }).catch((err) => {
+    saveBookingToDb(newBooking).catch((err) => {
       console.error("Erro ao salvar agendamento manual:", err);
-      setBookings(prev => [newBooking, ...prev]);
     });
 
     // Auto-save/register the patient in the patient database if needed
@@ -1011,147 +1004,280 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left font-sans text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-600 uppercase font-bold text-[10px] tracking-wider">
-                  <th className="p-4 pl-6">Data & Horário</th>
-                  <th className="p-4">Paciente</th>
-                  <th className="p-4">Contato</th>
-                  <th className="p-4">Abordagem de Escolha</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 text-right pr-6">Ações Rápidas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-50/40 transition">
-                    <td className="p-4 pl-6 font-semibold text-slate-900">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-purple-600" />
-                          {b.date}
-                        </span>
-                        <span className="text-slate-400 text-[11px] font-normal flex items-center gap-1.5 ml-5">
-                          <Clock className="w-3 h-3" />
-                          {b.timeSlot}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-bold text-slate-800">{b.clientName}</div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(b.consultationType || (b.roomCode ? "online" : "presencial")) === "presencial" ? (
-                          <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-emerald-100">
-                            📍 Presencial
+          <>
+            {/* Desktop View Table */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-left font-sans text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-600 uppercase font-bold text-[10px] tracking-wider">
+                    <th className="p-4 pl-6">Data & Horário</th>
+                    <th className="p-4">Paciente</th>
+                    <th className="p-4">Contato</th>
+                    <th className="p-4">Abordagem de Escolha</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4 text-right pr-6">Ações Rápidas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredBookings.map((b) => (
+                    <tr key={b.id} className="hover:bg-slate-50/40 transition">
+                      <td className="p-4 pl-6 font-semibold text-slate-900">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                            {b.date}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-purple-100">
-                            💻 Online
+                          <span className="text-slate-400 text-[11px] font-normal flex items-center gap-1.5 ml-5">
+                            <Clock className="w-3 h-3" />
+                            {b.timeSlot}
                           </span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-bold text-slate-800">{b.clientName}</div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {(b.consultationType || (b.roomCode ? "online" : "presencial")) === "presencial" ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-emerald-100">
+                              📍 Presencial
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-sans font-bold text-[10px] border border-purple-100">
+                              💻 Online
+                            </span>
+                          )}
+                          {b.roomCode && (b.consultationType || (b.roomCode ? "online" : "presencial")) !== "presencial" && (
+                            <div className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-mono font-bold text-[10px] border border-purple-100">
+                              <Video className="w-3 h-3 text-purple-500" />
+                              SALA: {b.roomCode}
+                            </div>
+                          )}
+                        </div>
+                        {b.notes && (
+                          <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={b.notes}>
+                            Obs: {b.notes}
+                          </p>
                         )}
-                        {b.roomCode && (b.consultationType || (b.roomCode ? "online" : "presencial")) !== "presencial" && (
-                          <div className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-mono font-bold text-[10px] border border-purple-100">
-                            <Video className="w-3 h-3 text-purple-500" />
-                            SALA: {b.roomCode}
+                      </td>
+                      <td className="p-4 space-y-0.5 text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-emerald-500" />
+                          <span>{b.clientPhone}</span>
+                        </div>
+                        {b.clientEmail && b.clientEmail !== "Não informado" && (
+                          <div className="flex items-center gap-1 text-[11px]">
+                            <Mail className="w-3 h-3 text-slate-400" />
+                            <span className="truncate max-w-[150px]">{b.clientEmail}</span>
                           </div>
                         )}
-                      </div>
-                      {b.notes && (
-                        <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={b.notes}>
-                          Obs: {b.notes}
-                        </p>
-                      )}
-                    </td>
-                    <td className="p-4 space-y-0.5 text-slate-500">
-                      <div className="flex items-center gap-1">
-                        <Phone className="w-3 h-3 text-emerald-500" />
-                        <span>{b.clientPhone}</span>
-                      </div>
-                      {b.clientEmail && b.clientEmail !== "Não informado" && (
-                        <div className="flex items-center gap-1 text-[11px]">
-                          <Mail className="w-3 h-3 text-slate-400" />
-                          <span className="truncate max-w-[150px]">{b.clientEmail}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span className="bg-purple-50 text-purple-700 px-2.5 py-1 rounded-lg border border-purple-100 font-semibold text-[11px]">
-                        {b.approach}
+                      </td>
+                      <td className="p-4">
+                        <span className="bg-purple-50 text-purple-700 px-2.5 py-1 rounded-lg border border-purple-100 font-semibold text-[11px]">
+                          {b.approach}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        {b.status === "scheduled" && (
+                          <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-100 font-bold text-[10px] uppercase">
+                            Aguardando
+                          </span>
+                        )}
+                        {b.status === "completed" && (
+                          <span className="bg-green-50 text-green-700 px-2.5 py-1 rounded-full border border-green-100 font-bold text-[10px] uppercase">
+                            Realizada
+                          </span>
+                        )}
+                        {b.status === "cancelled" && (
+                          <span className="bg-rose-50 text-rose-700 px-2.5 py-1 rounded-full border border-rose-100 font-bold text-[10px] uppercase">
+                            Cancelada
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 text-right pr-6 space-x-1 whitespace-nowrap">
+                        {b.status === "scheduled" && (
+                          <>
+                            {b.roomCode && (b.consultationType || "online") !== "presencial" && (
+                              <button
+                                onClick={() => {
+                                  if (onSelectLiveRoom) {
+                                    onSelectLiveRoom(b.roomCode!, b.clientName);
+                                  }
+                                }}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer shadow-sm flex items-center gap-1 inline-flex mr-1"
+                                title="Iniciar Transmissão Ao Vivo para esta consulta"
+                              >
+                                <Video className="w-3.5 h-3.5" />
+                                Atender
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleStatusChange(b.id, "completed")}
+                              className="bg-green-50 hover:bg-green-100 text-green-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-green-100"
+                              title="Marcar como realizada"
+                            >
+                              Concluir
+                            </button>
+                            <button
+                              onClick={() => handleStatusChange(b.id, "cancelled")}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-rose-100"
+                              title="Cancelar consulta"
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        )}
+                        {b.status !== "scheduled" && (
+                          <button
+                            onClick={() => handleStatusChange(b.id, "scheduled")}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-slate-100"
+                            title="Mudar status para pendente"
+                          >
+                            Reabrir
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteBooking(b.id)}
+                          className="bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-all cursor-pointer border border-slate-100 hover:border-rose-100"
+                          title="Apagar permanentemente"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile View Card List */}
+            <div className="block lg:hidden divide-y divide-slate-100">
+              {filteredBookings.map((b) => (
+                <div key={b.id} className="p-5 space-y-4 hover:bg-slate-50/20 transition">
+                  {/* Header: Date, Time & Status */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-1">
+                      <span className="flex items-center gap-1.5 font-bold text-slate-950 text-sm">
+                        <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
+                        {b.date}
                       </span>
-                    </td>
-                    <td className="p-4">
+                      <span className="text-slate-500 text-xs font-semibold flex items-center gap-1.5 ml-5">
+                        <Clock className="w-3.5 h-3.5 shrink-0" />
+                        {b.timeSlot}
+                      </span>
+                    </div>
+                    <div>
                       {b.status === "scheduled" && (
-                        <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-100 font-bold text-[10px] uppercase">
+                        <span className="bg-amber-50 text-amber-850 px-3 py-1 rounded-full border border-amber-200 font-extrabold text-[10px] uppercase tracking-wider">
                           Aguardando
                         </span>
                       )}
                       {b.status === "completed" && (
-                        <span className="bg-green-50 text-green-700 px-2.5 py-1 rounded-full border border-green-100 font-bold text-[10px] uppercase">
+                        <span className="bg-green-50 text-green-850 px-3 py-1 rounded-full border border-green-200 font-extrabold text-[10px] uppercase tracking-wider">
                           Realizada
                         </span>
                       )}
                       {b.status === "cancelled" && (
-                        <span className="bg-rose-50 text-rose-700 px-2.5 py-1 rounded-full border border-rose-100 font-bold text-[10px] uppercase">
+                        <span className="bg-rose-50 text-rose-850 px-3 py-1 rounded-full border border-rose-200 font-extrabold text-[10px] uppercase tracking-wider">
                           Cancelada
                         </span>
                       )}
-                    </td>
-                    <td className="p-4 text-right pr-6 space-x-1 whitespace-nowrap">
-                      {b.status === "scheduled" && (
-                        <>
-                          {b.roomCode && (b.consultationType || "online") !== "presencial" && (
-                            <button
-                              onClick={() => {
-                                if (onSelectLiveRoom) {
-                                  onSelectLiveRoom(b.roomCode!, b.clientName);
-                                }
-                              }}
-                              className="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer shadow-sm flex items-center gap-1 inline-flex mr-1"
-                              title="Iniciar Transmissão Ao Vivo para esta consulta"
-                            >
-                              <Video className="w-3.5 h-3.5" />
-                              Atender
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleStatusChange(b.id, "completed")}
-                            className="bg-green-50 hover:bg-green-100 text-green-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-green-100"
-                            title="Marcar como realizada"
-                          >
-                            Concluir
-                          </button>
-                          <button
-                            onClick={() => handleStatusChange(b.id, "cancelled")}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-rose-100"
-                            title="Cancelar consulta"
-                          >
-                            Cancelar
-                          </button>
-                        </>
+                    </div>
+                  </div>
+
+                  {/* Patient Information */}
+                  <div className="space-y-2">
+                    <div className="font-extrabold text-slate-900 text-base">{b.clientName}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(b.consultationType || (b.roomCode ? "online" : "presencial")) === "presencial" ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-xl font-sans font-bold text-[10px] border border-emerald-100">
+                          📍 Presencial
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-850 px-2.5 py-1 rounded-xl font-sans font-bold text-[10px] border border-purple-100">
+                          💻 Online
+                        </span>
                       )}
-                      {b.status !== "scheduled" && (
+                      {b.roomCode && (b.consultationType || (b.roomCode ? "online" : "presencial")) !== "presencial" && (
+                        <div className="inline-flex items-center gap-1 bg-purple-50 text-purple-850 px-2.5 py-1 rounded-xl font-mono font-bold text-[10px] border border-purple-100">
+                          <Video className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                          SALA: {b.roomCode}
+                        </div>
+                      )}
+                      <span className="bg-purple-50/50 text-purple-850 px-2.5 py-1 rounded-xl font-bold text-[10px] border border-purple-100/40">
+                        {b.approach}
+                      </span>
+                    </div>
+                    
+                    {/* Contacts info with proper tap guidelines */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 pt-1.5 border-t border-slate-50">
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>{b.clientPhone}</span>
+                      </div>
+                      {b.clientEmail && b.clientEmail !== "Não informado" && (
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span className="truncate">{b.clientEmail}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {b.notes && (
+                      <p className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-2xl mt-2 border border-slate-100/50 leading-relaxed">
+                        <strong>Obs:</strong> {b.notes}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Actions Row with beautiful touch targets */}
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100/50">
+                    {b.status === "scheduled" && (
+                      <>
+                        {b.roomCode && (b.consultationType || "online") !== "presencial" && (
+                          <button
+                            onClick={() => {
+                              if (onSelectLiveRoom) {
+                                onSelectLiveRoom(b.roomCode!, b.clientName);
+                              }
+                            }}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                          >
+                            <Video className="w-4 h-4 shrink-0" />
+                            Atender
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleStatusChange(b.id, "scheduled")}
-                          className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-slate-100"
-                          title="Mudar status para pendente"
+                          onClick={() => handleStatusChange(b.id, "completed")}
+                          className="bg-green-50 hover:bg-green-100 text-green-850 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer border border-green-200"
                         >
-                          Reabrir
+                          Concluir
                         </button>
-                      )}
+                        <button
+                          onClick={() => handleStatusChange(b.id, "cancelled")}
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-850 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer border border-rose-200"
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    )}
+                    {b.status !== "scheduled" && (
                       <button
-                        onClick={() => handleDeleteBooking(b.id)}
-                        className="bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-all cursor-pointer border border-slate-100 hover:border-rose-100"
-                        title="Apagar permanentemente"
+                        onClick={() => handleStatusChange(b.id, "scheduled")}
+                        className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer border border-slate-200"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        Reabrir
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    )}
+                    <button
+                      onClick={() => handleDeleteBooking(b.id)}
+                      className="bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-2.5 rounded-2xl transition-all cursor-pointer border border-slate-200 hover:border-rose-200 flex items-center justify-center min-w-[40px] min-h-[40px]"
+                    >
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1205,6 +1331,7 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
     // Real-time listener for patients
     const patientsQuery = query(collection(db, "patients"));
     const unsubscribePatients = onSnapshot(patientsQuery, (snapshot) => {
+      console.log(`[Firestore] Patients (Clinical) atualizados. Total: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
       const list: Patient[] = [];
       snapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() } as Patient);
@@ -1213,13 +1340,14 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
       localStorage.setItem("serenamente_patients", JSON.stringify(list));
       setIsLoading(false);
     }, (err) => {
-      console.error("Erro no onSnapshot do patients (Clinical):", err);
+      console.error("[Firestore ERROR] Falha na subscrição em tempo real de patients (Clinical):", err);
       getPatientsFromDb().then(setPatients).catch(console.error);
     });
 
     // Real-time listener for evolutions
     const evolutionsQuery = query(collection(db, "evolutions"));
     const unsubscribeEvolutions = onSnapshot(evolutionsQuery, (snapshot) => {
+      console.log(`[Firestore] Evolutions atualizados. Total: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
       const list: ClinicalEvolution[] = [];
       snapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
@@ -1227,13 +1355,14 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
       setEvolutions(list);
       localStorage.setItem("serenamente_evolutions", JSON.stringify(list));
     }, (err) => {
-      console.error("Erro no onSnapshot do evolutions:", err);
+      console.error("[Firestore ERROR] Falha na subscrição em tempo real de evolutions:", err);
       getEvolutionsFromDb().then(setEvolutions).catch(console.error);
     });
 
     // Real-time listener for planned sessions
     const plannedSessionsQuery = query(collection(db, "planned_sessions"));
     const unsubscribePlannedSessions = onSnapshot(plannedSessionsQuery, (snapshot) => {
+      console.log(`[Firestore] Planned Sessions atualizados. Total: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
       const list: PlannedSession[] = [];
       snapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() } as PlannedSession);
@@ -1241,7 +1370,7 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
       setPlannedSessions(list);
       localStorage.setItem("serenamente_planned_sessions", JSON.stringify(list));
     }, (err) => {
-      console.error("Erro no onSnapshot do planned_sessions:", err);
+      console.error("[Firestore ERROR] Falha na subscrição em tempo real de planned_sessions:", err);
       getPlannedSessionsFromDb().then(setPlannedSessions).catch(console.error);
     });
 
@@ -1288,8 +1417,6 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
 
     try {
       await savePatientToDb(newPatient);
-      // Sync local list
-      await fetchClinicalData();
       
       // Reset form
       setFormName("");
@@ -1332,8 +1459,6 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
         if (selectedPatient?.id === pId) {
           setSelectedPatient(null);
         }
-
-        await fetchClinicalData();
       } catch (err) {
         console.error("Erro ao excluir paciente:", err);
       }

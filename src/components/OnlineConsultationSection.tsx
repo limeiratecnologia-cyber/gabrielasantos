@@ -194,6 +194,8 @@ export default function OnlineConsultationSection() {
       cleanupWebRTCInstance();
       setConnectionStatus("connecting");
 
+      console.log(`[WebRTC Patient] Iniciando conexão para a sala: ${sanitizedCode}`);
+
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
@@ -211,7 +213,7 @@ export default function OnlineConsultationSection() {
 
       // Handle remote tracks from the therapist using robust stream binding
       pc.ontrack = (event) => {
-        console.log("Paciente recebeu track remoto:", event.track.kind);
+        console.log("[WebRTC Patient] Recebeu track remoto do Terapeuta:", event.track.kind);
         setIsRemoteConnected(true);
         setConnectionStatus("connected");
 
@@ -234,7 +236,7 @@ export default function OnlineConsultationSection() {
       const updateConnectionStatus = () => {
         const state = pc.connectionState;
         const iceState = pc.iceConnectionState;
-        console.log("WebRTC Patient states updated - Connection:", state, "ICE:", iceState);
+        console.log(`[WebRTC Patient] Estados de conexão atualizados - ConnectionState: ${state}, IceConnectionState: ${iceState}`);
         
         if (state === "connected" || iceState === "connected") {
           setConnectionStatus("connected");
@@ -260,10 +262,13 @@ export default function OnlineConsultationSection() {
       // Handle local ICE candidates
       pc.onicecandidate = async (event) => {
         if (event.candidate) {
+          console.log("[WebRTC Patient] Novo candidato ICE local gerado:", event.candidate.candidate);
           const roomRef = doc(db, "room_sessions", sanitizedCode);
           await updateDoc(roomRef, {
             patientCandidates: arrayUnion(event.candidate.toJSON())
-          }).catch(console.error);
+          }).catch((err) => {
+            console.error("[WebRTC Patient ERROR] Erro ao enviar candidato ICE do paciente ao Firestore:", err);
+          });
         }
       };
 
@@ -274,15 +279,39 @@ export default function OnlineConsultationSection() {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
 
+        console.log(`[WebRTC Patient/Firestore] Snapshot recebido. Offer presente: ${!!data.offer}, Answer presente: ${!!data.answer}, Candidatos Terapeuta: ${data.therapistCandidates?.length || 0}`);
+
         // Handle Offer (only if remote description is NOT set yet to break infinite SDP loops)
         if (data.offer && !pc.remoteDescription) {
-          console.log("Paciente processando offer do terapeuta...");
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(console.error);
+          console.log("[WebRTC Patient] Processando offer do terapeuta...");
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+            .then(() => console.log("[WebRTC Patient] RemoteDescription (Offer) setado com sucesso."))
+            .catch(err => console.error("[WebRTC Patient ERROR] Falha ao setar RemoteDescription (Offer):", err));
+          
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          
+          console.log("[WebRTC Patient] Enviando answer do paciente ao Firestore...");
           await updateDoc(roomRef, {
             answer: { type: answer.type, sdp: answer.sdp }
-          }).catch(console.error);
+          }).catch(err => console.error("[WebRTC Patient ERROR] Falha ao enviar Answer ao Firestore:", err));
+
+          // Post-SDP Catch-up: Immediately process any therapist candidates that arrived before SDP negotiation
+          if (data.therapistCandidates && Array.isArray(data.therapistCandidates)) {
+            console.log(`[WebRTC Patient] Catch-up: Adicionando ${data.therapistCandidates.length} candidatos do terapeuta pós-SDP...`);
+            for (const cand of data.therapistCandidates) {
+              const candStr = JSON.stringify(cand);
+              if (!candidatesAdded.current.has(candStr)) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  candidatesAdded.current.add(candStr);
+                  console.log("[WebRTC Patient] Candidato do terapeuta adicionado via catch-up.");
+                } catch (e) {
+                  console.error("[WebRTC Patient ERROR] Erro ao adicionar candidato via catch-up:", e);
+                }
+              }
+            }
+          }
         }
 
         // Handle Therapist ICE candidates only if remote description is set
@@ -293,18 +322,21 @@ export default function OnlineConsultationSection() {
               try {
                 await pc.addIceCandidate(new RTCIceCandidate(cand));
                 candidatesAdded.current.add(candStr);
+                console.log("[WebRTC Patient] Candidato do terapeuta adicionado em tempo real.");
               } catch (e) {
-                console.error("Failed to add therapist candidate:", e);
+                console.error("[WebRTC Patient ERROR] Falha ao adicionar candidato em tempo real:", e);
               }
             }
           }
         }
+      }, (err) => {
+        console.error("[WebRTC Patient ERROR] Erro no onSnapshot do room_sessions:", err);
       });
 
       (pc as any)._unsubscribeFirestore = unsubscribe;
 
     } catch (err) {
-      console.error("Error setting up WebRTC patient:", err);
+      console.error("[WebRTC Patient ERROR] Erro no setup do WebRTC do paciente:", err);
       setConnectionStatus("disconnected");
     }
   };
@@ -643,173 +675,186 @@ export default function OnlineConsultationSection() {
           <div className="flex-1 flex flex-col md:flex-row overflow-visible md:overflow-hidden relative">
             
              {/* Stage containing Video Streams */}
-             <div className="flex-grow md:flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-visible md:overflow-hidden shrink-0 md:shrink">
-               <div className="w-full h-full flex flex-col sm:flex-row md:block relative gap-3">
+             <div className="flex-grow md:flex-1 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-y-auto md:overflow-hidden shrink-0 md:shrink">
+               <div className="w-full flex flex-col gap-4 md:block md:absolute md:inset-0 md:p-4">
                  
-                 {/* 1. Remote Video Stream / Waiting Room - Full size on desktop, split on mobile */}
-                 <div className="flex-1 md:absolute md:inset-0 rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/40 border border-slate-800/60 overflow-hidden relative flex flex-col items-center justify-center transition-all shadow-lg">
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${therapistIsLive && isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
-                    />
-                   {therapistIsLive && !isRemoteConnected ? (
-                     /* Simulated professional screen */
-                     <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 animate-fade-in p-4">
-                       {/* Psychologist mockup avatar */}
-                       <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-purple-600/10 border-2 border-purple-500/30 flex items-center justify-center shadow-lg relative group shrink-0">
-                         <div className="absolute inset-0 rounded-full border-4 border-dashed border-purple-400 animate-spin opacity-20 duration-10000" />
-                         <User className="w-8 h-8 sm:w-10 sm:h-10 text-purple-400" />
-                       </div>
-                       
-                       <div className="text-center space-y-1 min-w-0 w-full px-2">
-                         <h4 className="font-extrabold text-slate-200 text-sm sm:text-base truncate">Dra. Gabriela Santos</h4>
-                         <p className="text-[10px] sm:text-xs text-slate-400 truncate">Psicóloga Clínica • CRP 06/123456</p>
-                         <div className="inline-flex items-center gap-1 bg-green-950/60 text-green-400 border border-green-900 px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
-                           <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                           Conectada e Transmitindo
-                         </div>
-                       </div>
- 
-                       {/* Talking feedback visualizer */}
-                       <div className="flex items-center gap-0.5 h-6 shrink-0">
-                         <div className="w-1 bg-purple-500 rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
-                         <div className="w-1 bg-purple-500 rounded-full animate-bounce h-4" style={{ animationDelay: "0.3s" }} />
-                         <div className="w-1 bg-purple-500 rounded-full animate-bounce h-5" style={{ animationDelay: "0.5s" }} />
-                         <div className="w-1 bg-purple-500 rounded-full animate-bounce h-3" style={{ animationDelay: "0.2s" }} />
-                         <div className="w-1 bg-purple-500 rounded-full animate-bounce h-1" style={{ animationDelay: "0.4s" }} />
-                       </div>
-                     </div>
-                   ) : (
-                     /* Gorgeous Waiting Room with ACT breathing exercises */
-                     <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-4 sm:space-y-6 overflow-y-auto animate-fade-in bg-slate-950/40">
-                       <div className="relative flex items-center justify-center shrink-0">
-                         <div className="absolute w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-purple-500/10 animate-ping duration-[1.5s]" />
-                         <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-purple-500/30 flex items-center justify-center shadow-inner relative">
-                           <Clock className="w-5 h-5 sm:w-7 sm:h-7 text-purple-400 animate-pulse" />
-                         </div>
-                       </div>
- 
-                       <div className="space-y-1 sm:space-y-2 max-w-sm">
-                         <h4 className="font-extrabold text-slate-200 text-sm sm:text-base tracking-tight">Sala de Espera Ativa</h4>
-                         <p className="text-[10px] sm:text-xs text-slate-400 leading-relaxed px-2">
-                           Olá, <strong>{bookingDetails?.clientName || "Paciente"}</strong>! Você se conectou com sucesso. Aguardando a <strong>Dra. Gabriela Santos</strong> iniciar a transmissão ao vivo.
-                         </p>
-                       </div>
- 
-                       {/* Interactive ACT/Mindfulness Breathing Exercise */}
-                       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 max-w-xs w-full space-y-3 shadow-xl shrink-0">
-                         <div className="flex items-center gap-1.5 justify-center text-[10px] sm:text-xs font-bold text-purple-400 uppercase tracking-wider">
-                           <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500" />
-                           Respiração Guiada
-                         </div>
-                         
-                         {breathState === "idle" ? (
-                           <div className="space-y-2.5">
-                             <p className="text-[10px] text-slate-400 leading-relaxed">
-                               Sintonize sua atenção plena enquanto aguarda.
-                             </p>
-                             <button
-                               type="button"
-                               onClick={() => setBreathState("inhale")}
-                               className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 hover:text-white border border-purple-500/30 hover:border-purple-500 px-3.5 py-1.5 rounded-xl text-[10px] font-bold transition cursor-pointer"
-                             >
-                               Iniciar Exercício
-                             </button>
-                           </div>
-                         ) : (
-                           <div className="space-y-3 flex flex-col items-center">
-                             {/* Pulsing Breathing Bubble */}
-                             <div className="relative flex items-center justify-center h-16 w-16 sm:h-20 sm:w-20">
-                               <div 
-                                 className={`absolute rounded-full bg-purple-500/10 border border-purple-500/20 transition-all duration-4000 ${
-                                   breathState === "inhale" ? "scale-[1.6]" : breathState === "hold" ? "scale-[1.6] bg-purple-500/20" : "scale-[0.8]"
-                                 }`} 
-                               />
-                               <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-purple-600 border border-purple-500 shadow-lg flex items-center justify-center text-white font-extrabold text-[10px] sm:text-xs">
-                                 {breathState === "inhale" && "Inspirar"}
-                                 {breathState === "hold" && "Segurar"}
-                                 {breathState === "exhale" && "Expirar"}
-                               </div>
-                             </div>
- 
-                             <div className="text-center space-y-0.5">
-                               <p className="text-[10px] sm:text-xs font-extrabold text-purple-300 capitalize">
-                                 {breathState === "inhale" && "Puxe o ar..."}
-                                 {breathState === "hold" && "Segure firme..."}
-                                 {breathState === "exhale" && "Solte lentamente..."}
-                               </p>
-                             </div>
- 
-                             <button
-                               type="button"
-                               onClick={() => {
-                                 setBreathState("idle");
-                                 setBreathCycle(0);
-                               }}
-                               className="text-[9px] text-slate-400 hover:text-slate-200 underline font-semibold transition cursor-pointer"
-                             >
-                               Parar
-                             </button>
-                           </div>
-                         )}
-                       </div>
-                     </div>
-                   )}
- 
-                   {/* Status overlay badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] text-slate-200 font-bold backdrop-blur-sm tracking-wider uppercase z-40">
-                     {therapistIsLive ? (isRemoteConnected ? "🔴 PSICÓLOGA (AO VIVO)" : "🔴 PSICÓLOGA") : "⏱️ AGUARDANDO"}
-                   </div>
-                 </div>
- 
-                 {/* 2. Patient Local Video Box - picture in picture on desktop, side-by-side split on mobile */}
-                 <div className="flex-1 md:absolute md:bottom-4 md:right-4 md:w-56 md:aspect-video rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20">
-                   {!isVideoOff && !streamError ? (
+                 {/* 1. Remote Video Stream / Waiting Room - Full size on desktop, fluid with aspect-ratio on mobile */}
+                 <div className="w-full aspect-[4/3] sm:aspect-video md:absolute md:inset-0 md:w-full md:h-full rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/40 border border-slate-800/60 overflow-hidden relative flex flex-col items-center justify-center transition-all shadow-lg shrink-0">
                      <video
-                       ref={localVideoRef}
+                       ref={remoteVideoRef}
                        autoPlay
                        playsInline
-                       muted
-                       className="w-full h-full object-cover scale-x-[-1]"
+                       className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${therapistIsLive && isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
                      />
-                   ) : (
-                     streamError ? (
-                       <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
-                         <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
-                           <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
-                         </div>
-                         <div>
-                           <h4 className="font-bold text-xs sm:text-sm text-red-400 leading-tight">Acesso Negado</h4>
-                           <p className="text-[10px] text-slate-400 max-w-[150px] mx-auto mb-2 leading-tight">
-                             Permita a câmera e microfone no navegador.
-                           </p>
-                           <button
-                             onClick={() => requestCameraPermission()}
-                             className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[9px] px-3 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
-                           >
-                             Autorizar Aparelho
-                           </button>
-                         </div>
-                       </div>
-                     ) : (
-                       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 p-4 space-y-2 text-center">
-                         <div className="w-10 h-10 rounded-full bg-slate-850 border border-slate-750 flex items-center justify-center mx-auto shadow-inner">
-                           <VideoOff className="w-4.5 h-4.5 text-slate-500" />
-                         </div>
-                         <span className="text-[10px] text-slate-400 font-semibold leading-tight">Sua Câmera Desativada</span>
-                       </div>
-                     )
-                   )}
-                   {/* Floating badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-10">
-                     VOCÊ
-                   </div>
-                 </div>
- 
-               </div>
-             </div>
+                    {therapistIsLive && !isRemoteConnected ? (
+                      /* Simulated professional screen / connecting fallback */
+                      <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 animate-fade-in p-4 bg-slate-950/80 z-20">
+                        {/* Psychologist mockup avatar */}
+                        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-purple-600/10 border-2 border-purple-500/30 flex items-center justify-center shadow-lg relative group shrink-0">
+                          <div className="absolute inset-0 rounded-full border-4 border-dashed border-purple-400 animate-spin opacity-20 duration-10000" />
+                          <User className="w-8 h-8 sm:w-10 sm:h-10 text-purple-400" />
+                        </div>
+                        
+                        <div className="text-center space-y-1 min-w-0 w-full px-2">
+                          <h4 className="font-extrabold text-slate-200 text-sm sm:text-base truncate">Dra. Gabriela Santos</h4>
+                          <p className="text-[10px] sm:text-xs text-slate-400 truncate">Psicóloga Clínica • CRP 06/123456</p>
+                          
+                          {connectionStatus === "connecting" ? (
+                            <div className="inline-flex items-center gap-1 bg-purple-950/60 text-purple-400 border border-purple-900 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                              <span className="w-1.5 h-1.5 bg-purple-450 rounded-full animate-ping" />
+                              Conectando ao canal de vídeo...
+                            </div>
+                          ) : connectionStatus === "disconnected" ? (
+                            <div className="inline-flex items-center gap-1 bg-amber-950/60 text-amber-400 border border-amber-900 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                              Instabilidade detectada. Reconectando...
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 bg-green-950/60 text-green-400 border border-green-900 px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
+                              <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                              Conectada e Transmitindo
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Talking feedback visualizer */}
+                        <div className="flex items-center gap-0.5 h-6 shrink-0">
+                          <div className="w-1 bg-purple-500 rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
+                          <div className="w-1 bg-purple-500 rounded-full animate-bounce h-4" style={{ animationDelay: "0.3s" }} />
+                          <div className="w-1 bg-purple-500 rounded-full animate-bounce h-5" style={{ animationDelay: "0.5s" }} />
+                          <div className="w-1 bg-purple-500 rounded-full animate-bounce h-3" style={{ animationDelay: "0.2s" }} />
+                          <div className="w-1 bg-purple-500 rounded-full animate-bounce h-1" style={{ animationDelay: "0.4s" }} />
+                        </div>
+                      </div>
+                    ) : (
+                      /* Gorgeous Waiting Room with ACT breathing exercises */
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-4 sm:space-y-6 overflow-y-auto animate-fade-in bg-slate-950/40">
+                        <div className="relative flex items-center justify-center shrink-0">
+                          <div className="absolute w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-purple-500/10 animate-ping duration-[1.5s]" />
+                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-purple-500/30 flex items-center justify-center shadow-inner relative">
+                            <Clock className="w-5 h-5 sm:w-7 sm:h-7 text-purple-400 animate-pulse" />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 sm:space-y-2 max-w-sm">
+                          <h4 className="font-extrabold text-slate-200 text-sm sm:text-base tracking-tight">Sala de Espera Ativa</h4>
+                          <p className="text-[10px] sm:text-xs text-slate-400 leading-relaxed px-2">
+                            Olá, <strong>{bookingDetails?.clientName || "Paciente"}</strong>! Você se conectou com sucesso. Aguardando a <strong>Dra. Gabriela Santos</strong> iniciar a transmissão ao vivo.
+                          </p>
+                        </div>
+
+                        {/* Interactive ACT/Mindfulness Breathing Exercise */}
+                        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 max-w-xs w-full space-y-3 shadow-xl shrink-0">
+                          <div className="flex items-center gap-1.5 justify-center text-[10px] sm:text-xs font-bold text-purple-400 uppercase tracking-wider">
+                            <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500" />
+                            Respiração Guiada
+                          </div>
+                          
+                          {breathState === "idle" ? (
+                            <div className="space-y-2.5">
+                              <p className="text-[10px] text-slate-400 leading-relaxed">
+                                Sintonize sua atenção plena enquanto aguarda.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setBreathState("inhale")}
+                                className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 hover:text-white border border-purple-500/30 hover:border-purple-500 px-3.5 py-1.5 rounded-xl text-[10px] font-bold transition cursor-pointer"
+                              >
+                                Iniciar Exercício
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 flex flex-col items-center">
+                              {/* Pulsing Breathing Bubble */}
+                              <div className="relative flex items-center justify-center h-16 w-16 sm:h-20 sm:w-20">
+                                <div 
+                                  className={`absolute rounded-full bg-purple-500/10 border border-purple-500/20 transition-all duration-4000 ${
+                                    breathState === "inhale" ? "scale-[1.6]" : breathState === "hold" ? "scale-[1.6] bg-purple-500/20" : "scale-[0.8]"
+                                  }`} 
+                                />
+                                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-purple-600 border border-purple-500 shadow-lg flex items-center justify-center text-white font-extrabold text-[10px] sm:text-xs">
+                                  {breathState === "inhale" && "Inspirar"}
+                                  {breathState === "hold" && "Segurar"}
+                                  {breathState === "exhale" && "Expirar"}
+                                </div>
+                              </div>
+
+                              <div className="text-center space-y-0.5">
+                                <p className="text-[10px] sm:text-xs font-extrabold text-purple-300 capitalize">
+                                  {breathState === "inhale" && "Puxe o ar..."}
+                                  {breathState === "hold" && "Segure firme..."}
+                                  {breathState === "exhale" && "Solte lentamente..."}
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBreathState("idle");
+                                  setBreathCycle(0);
+                                }}
+                                className="text-[9px] text-slate-400 hover:text-slate-200 underline font-semibold transition cursor-pointer"
+                              >
+                                Parar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Status overlay badge */}
+                    <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] text-slate-200 font-bold backdrop-blur-sm tracking-wider uppercase z-40">
+                      {therapistIsLive ? (isRemoteConnected ? "🔴 PSICÓLOGA (AO VIVO)" : "🔴 PSICÓLOGA") : "⏱️ AGUARDANDO"}
+                    </div>
+                  </div>
+
+                  {/* 2. Patient Local Video Box - picture in picture on desktop, fluid with aspect-ratio on mobile */}
+                  <div className="w-full aspect-[4/3] sm:aspect-video md:absolute md:bottom-4 md:right-4 md:w-56 md:h-32 rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20 shrink-0">
+                    {!isVideoOff && !streamError ? (
+                      <video
+                        ref={localVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
+                    ) : (
+                      streamError ? (
+                        <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
+                            <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-xs sm:text-sm text-red-400 leading-tight">Acesso Negado</h4>
+                            <p className="text-[10px] text-slate-400 max-w-[150px] mx-auto mb-2 leading-tight">
+                              Permita a câmera e microfone no navegador.
+                            </p>
+                            <button
+                              onClick={() => requestCameraPermission()}
+                              className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[9px] px-3 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
+                            >
+                              Autorizar Aparelho
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 p-4 space-y-2 text-center">
+                          <div className="w-10 h-10 rounded-full bg-slate-850 border border-slate-750 flex items-center justify-center mx-auto shadow-inner">
+                            <VideoOff className="w-4.5 h-4.5 text-slate-500" />
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-semibold leading-tight">Sua Câmera Desativada</span>
+                        </div>
+                      )
+                    )}
+                    {/* Floating badge */}
+                    <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-10">
+                      VOCÊ
+                    </div>
+                  </div>
+
+                </div>
+              </div>
 
             {/* Sidebar console */}
             <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col h-[450px] md:h-auto md:shrink-0 overflow-hidden">

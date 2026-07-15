@@ -241,6 +241,8 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      console.log(`[WebRTC Therapist] Local Description (Offer) criada e setada. Salvando no Firestore sob código da sala: ${roomCode}`);
+
       const roomRef = doc(db, "room_sessions", roomCode);
       await updateDoc(roomRef, {
         offer: { type: offer.type, sdp: offer.sdp },
@@ -249,7 +251,8 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         patientCandidates: [],
         therapistIsLive: true,
         lastUpdated: Date.now()
-      }).catch(async () => {
+      }).catch(async (err) => {
+        console.warn("[WebRTC Therapist] updateDoc falhou (documento pode não existir), tentando setDoc com merge: true. Erro original:", err);
         // Document might not exist yet, fallback to setDoc
         await setDoc(roomRef, {
           roomCode,
@@ -266,11 +269,32 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         if (!snapshot.exists()) return;
         const data = snapshot.data();
 
+        console.log(`[WebRTC Therapist/Firestore] Snapshot recebido. Offer presente: ${!!data.offer}, Answer presente: ${!!data.answer}, Candidatos Paciente: ${data.patientCandidates?.length || 0}`);
+
         // Handle Patient SDP Answer (break infinite SDP loops with pc.remoteDescription check)
         if (data.answer && !pc.remoteDescription) {
-          console.log("Terapeuta processando answer do paciente...");
+          console.log("[WebRTC Therapist] Processando answer do paciente...");
           const remoteDesc = new RTCSessionDescription(data.answer);
-          await pc.setRemoteDescription(remoteDesc).catch(console.error);
+          await pc.setRemoteDescription(remoteDesc)
+            .then(() => console.log("[WebRTC Therapist] RemoteDescription (Answer) setado com sucesso."))
+            .catch(err => console.error("[WebRTC Therapist ERROR] Falha ao setar RemoteDescription (Answer):", err));
+          
+          // Post-SDP Catch-up: Immediately process any patient candidates that arrived before SDP negotiation
+          if (data.patientCandidates && Array.isArray(data.patientCandidates)) {
+            console.log(`[WebRTC Therapist] Catch-up: Adicionando ${data.patientCandidates.length} candidatos do paciente pós-SDP...`);
+            for (const cand of data.patientCandidates) {
+              const candStr = JSON.stringify(cand);
+              if (!candidatesAdded.current.has(candStr)) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  candidatesAdded.current.add(candStr);
+                  console.log("[WebRTC Therapist] Candidato do paciente adicionado via catch-up.");
+                } catch (e) {
+                  console.error("[WebRTC Therapist ERROR] Erro ao adicionar candidato do paciente via catch-up:", e);
+                }
+              }
+            }
+          }
         }
 
         // Handle Patient ICE candidates only if remote description is set
@@ -281,18 +305,21 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
               try {
                 await pc.addIceCandidate(new RTCIceCandidate(cand));
                 candidatesAdded.current.add(candStr);
+                console.log("[WebRTC Therapist] Candidato do paciente adicionado em tempo real.");
               } catch (e) {
-                console.error("Failed to add patient candidate:", e);
+                console.error("[WebRTC Therapist ERROR] Falha ao adicionar candidato do paciente em tempo real:", e);
               }
             }
           }
         }
+      }, (err) => {
+        console.error("[WebRTC Therapist ERROR] Erro na subscrição em tempo real de room_sessions:", err);
       });
 
       (pc as any)._unsubscribeFirestore = unsubscribe;
 
     } catch (err) {
-      console.error("Error setting up WebRTC therapist:", err);
+      console.error("[WebRTC Therapist ERROR] Erro no setup do WebRTC do terapeuta:", err);
       setConnectionStatus("disconnected");
     }
   };
@@ -704,100 +731,103 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
           <div className="flex-1 flex flex-col md:flex-row overflow-visible md:overflow-hidden relative">
             
              {/* Camera feed area */}
-             <div className="flex-grow md:flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-visible md:overflow-hidden shrink-0 md:shrink">
-               <div className="w-full h-full flex flex-col sm:flex-row md:block relative gap-3">
+             <div className="flex-grow md:flex-1 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-y-auto md:overflow-hidden shrink-0 md:shrink">
+               <div className="w-full flex flex-col gap-4 md:block md:absolute md:inset-0 md:p-4">
                  
                  {/* 1. Therapist Local Video Box */}
-                 <div className="flex-1 md:absolute md:inset-0 rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/20 border border-slate-850 overflow-hidden relative flex items-center justify-center shadow-lg">
-                   {!isVideoOff && !streamError ? (
+                 <div className="w-full aspect-[4/3] sm:aspect-video md:absolute md:inset-0 md:w-full md:h-full rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/20 border border-slate-850 overflow-hidden relative flex items-center justify-center shadow-lg shrink-0">
+                    {!isVideoOff && !streamError ? (
+                      <video
+                        ref={localVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
+                    ) : (
+                      streamError ? (
+                        <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
+                            <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-xs sm:text-sm text-red-400">Acesso Negado</h4>
+                            <p className="text-[10px] text-slate-400 max-w-[180px] sm:max-w-xs mx-auto mb-2">
+                              Permita o acesso à câmera e microfone no navegador.
+                            </p>
+                            <button
+                              onClick={() => requestCameraPermission()}
+                              className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] px-3.5 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
+                            >
+                              Autorizar Aparelho
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center space-y-2 py-6">
+                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
+                            <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-xs sm:text-sm text-slate-300">Câmera Desativada</h4>
+                            <p className="text-[10px] text-slate-500 max-w-[200px] sm:max-w-xs mx-auto">Use os botões de controle para transmitir.</p>
+                          </div>
+                        </div>
+                      )
+                    )}
+  
+                    {/* Floating details badge */}
+                    <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm flex items-center gap-1.5 z-10">
+                      <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+                      SUA CÂMERA (AO VIVO)
+                    </div>
+                  </div>
+  
+                  {/* 2. Patient Remote Video Box - picture in picture on desktop, fluid with aspect-ratio on mobile */}
+                  <div className="w-full aspect-[4/3] sm:aspect-video md:absolute md:bottom-4 md:right-4 md:w-56 md:h-32 rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20 shrink-0">
                      <video
-                       ref={localVideoRef}
+                       ref={remoteVideoRef}
                        autoPlay
                        playsInline
-                       muted
-                       className="w-full h-full object-cover scale-x-[-1]"
+                       className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
                      />
-                   ) : (
-                     streamError ? (
-                       <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
-                         <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
-                           <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
-                         </div>
-                         <div>
-                           <h4 className="font-bold text-xs sm:text-sm text-red-400">Acesso Negado</h4>
-                           <p className="text-[10px] text-slate-400 max-w-[180px] sm:max-w-xs mx-auto mb-2">
-                             Permita o acesso à câmera e microfone no navegador.
-                           </p>
-                           <button
-                             onClick={() => requestCameraPermission()}
-                             className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] px-3.5 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
-                           >
-                             Autorizar Aparelho
-                           </button>
-                         </div>
-                       </div>
-                     ) : (
-                       <div className="text-center space-y-2 py-6">
-                         <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
-                           <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500" />
-                         </div>
-                         <div>
-                           <h4 className="font-bold text-xs sm:text-sm text-slate-300">Câmera Desativada</h4>
-                           <p className="text-[10px] text-slate-500 max-w-[200px] sm:max-w-xs mx-auto">Use os botões de controle para transmitir.</p>
-                         </div>
-                       </div>
-                     )
-                   )}
- 
-                   {/* Floating details badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm flex items-center gap-1.5 z-10">
-                     <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
-                     SUA CÂMERA (AO VIVO)
-                   </div>
- 
-                   {/* Simulated telemetry overlay (Desktop only to prevent clutter on mobile) */}
-                   <div className="absolute top-3 left-3 flex gap-1.5 z-10 hidden sm:flex">
-                     <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-1.5 py-0.5 rounded backdrop-blur-xs font-mono">
-                       FPS: 30
-                     </span>
-                     <span className="bg-slate-900/60 border border-slate-800 text-[9px] font-bold text-slate-300 px-1.5 py-0.5 rounded backdrop-blur-xs font-mono">
-                       1.2 MBPS
-                     </span>
-                   </div>
-                 </div>
- 
-                 {/* 2. Patient Remote Video Box - picture in picture on desktop, side-by-side split on mobile */}
-                 <div className="flex-1 md:absolute md:bottom-4 md:right-4 md:w-56 md:aspect-video rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20">
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
-                    />
-                   <div className={`w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center ${isRemoteConnected ? 'hidden' : ''}`}>
-                     {/* Glowing user circle */}
-                     <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shadow">
-                       <User className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
-                     </div>
-                     <div className="text-center space-y-1 min-w-0 w-full px-1">
-                       <span className="text-xs text-slate-200 font-bold block truncate">
-                         {selectedPatient?.name || "Paciente Conectado"}
-                       </span>
-                       <span className="inline-flex items-center gap-1 bg-green-950 text-green-400 border border-green-900 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
-                         <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                         Online
-                       </span>
-                     </div>
-                   </div>
-                   
-                   {/* Floating badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-40">
-                     {isRemoteConnected ? "PACIENTE (AO VIVO)" : "PACIENTE"}
-                   </div>
-                 </div>
- 
-               </div>
-             </div>
+                    <div className={`w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center ${isRemoteConnected ? 'hidden' : ''}`}>
+                      {/* Glowing user circle */}
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shadow">
+                        <User className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
+                      </div>
+                      <div className="text-center space-y-1 min-w-0 w-full px-1">
+                        <span className="text-xs text-slate-200 font-bold block truncate">
+                          {selectedPatient?.name || "Paciente Conectado"}
+                        </span>
+                        
+                        {connectionStatus === "connecting" ? (
+                          <span className="inline-flex items-center gap-1 bg-purple-950 text-purple-400 border border-purple-900 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                            <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-ping" />
+                            Sincronizando...
+                          </span>
+                        ) : connectionStatus === "disconnected" ? (
+                          <span className="inline-flex items-center gap-1 bg-amber-950 text-amber-400 border border-amber-900 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                            Aguardando Entrada
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 bg-green-950 text-green-400 border border-green-900 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                            Conectado
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Floating badge */}
+                    <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-40">
+                      {isRemoteConnected ? "PACIENTE (AO VIVO)" : "PACIENTE"}
+                    </div>
+                  </div>
+  
+                </div>
+              </div>
 
             {/* Right sidebar tab section */}
             <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col h-[450px] md:h-auto md:shrink-0 overflow-hidden">
