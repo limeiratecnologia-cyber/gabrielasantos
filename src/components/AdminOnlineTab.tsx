@@ -25,6 +25,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
   // WebRTC States and Refs
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isRemoteConnected, setIsRemoteConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const candidatesAdded = useRef<Set<string>>(new Set());
@@ -161,6 +162,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
     if (!roomCode) return;
     try {
       cleanupWebRTCInstance();
+      setConnectionStatus("connecting");
 
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -177,25 +179,53 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         pc.addTrack(track, localStream);
       });
 
-      // Handle remote tracks from the patient
-      const remoteMediaStream = new MediaStream();
-      setRemoteStream(remoteMediaStream);
-      
+      // Handle remote tracks from the patient using robust stream binding
       pc.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => {
-          remoteMediaStream.addTrack(track);
-        });
+        console.log("Terapeuta recebeu track remoto:", event.track.kind);
         setIsRemoteConnected(true);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteMediaStream;
+        setConnectionStatus("connected");
+
+        let streamToUse: MediaStream;
+        if (remoteVideoRef.current && remoteVideoRef.current.srcObject instanceof MediaStream) {
+          streamToUse = remoteVideoRef.current.srcObject;
+        } else {
+          streamToUse = new MediaStream();
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = streamToUse;
+          }
+          setRemoteStream(streamToUse);
+        }
+
+        if (event.track) {
+          streamToUse.addTrack(event.track);
         }
       };
 
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+      const updateConnectionStatus = () => {
+        const state = pc.connectionState;
+        const iceState = pc.iceConnectionState;
+        console.log("WebRTC Therapist states updated - Connection:", state, "ICE:", iceState);
+        
+        if (state === "connected" || iceState === "connected") {
+          setConnectionStatus("connected");
+          setIsRemoteConnected(true);
+        } else if (state === "connecting" || iceState === "checking") {
+          setConnectionStatus("connecting");
+        } else if (
+          state === "disconnected" || 
+          state === "failed" || 
+          state === "closed" || 
+          iceState === "disconnected" || 
+          iceState === "failed" || 
+          iceState === "closed"
+        ) {
+          setConnectionStatus("disconnected");
           setIsRemoteConnected(false);
         }
       };
+
+      pc.onconnectionstatechange = updateConnectionStatus;
+      pc.oniceconnectionstatechange = updateConnectionStatus;
 
       // Handle local ICE candidates
       pc.onicecandidate = async (event) => {
@@ -236,8 +266,9 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         if (!snapshot.exists()) return;
         const data = snapshot.data();
 
-        // Handle Patient SDP Answer
-        if (data.answer && pc.signalingState === "have-local-offer") {
+        // Handle Patient SDP Answer (break infinite SDP loops with pc.remoteDescription check)
+        if (data.answer && !pc.remoteDescription) {
+          console.log("Terapeuta processando answer do paciente...");
           const remoteDesc = new RTCSessionDescription(data.answer);
           await pc.setRemoteDescription(remoteDesc).catch(console.error);
         }
@@ -262,6 +293,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
 
     } catch (err) {
       console.error("Error setting up WebRTC therapist:", err);
+      setConnectionStatus("disconnected");
     }
   };
 
@@ -276,6 +308,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
       pcRef.current = null;
     }
     setIsRemoteConnected(false);
+    setConnectionStatus("disconnected");
   };
 
   const cleanupWebRTC = () => {
@@ -627,7 +660,27 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
             </div>
 
             {/* Room code copy trigger */}
-            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
+            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 flex-wrap">
+              {/* Connection Status Indicator */}
+              {connectionStatus === "connected" && (
+                <div className="flex items-center gap-1.5 bg-green-950/60 border border-green-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-green-400 uppercase tracking-wider" id="admin-status-connected">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                  Conectado
+                </div>
+              )}
+              {connectionStatus === "connecting" && (
+                <div className="flex items-center gap-1.5 bg-yellow-950/60 border border-yellow-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-yellow-400 uppercase tracking-wider animate-pulse" id="admin-status-connecting">
+                  <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+                  Conectando...
+                </div>
+              )}
+              {connectionStatus === "disconnected" && (
+                <div className="flex items-center gap-1.5 bg-rose-950/60 border border-rose-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-rose-400 uppercase tracking-wider" id="admin-status-disconnected">
+                  <span className="w-1.5 h-1.5 bg-rose-400 rounded-full" />
+                  Desconectado
+                </div>
+              )}
+
               <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-750 px-3 py-1.5 rounded-full text-xs font-mono font-bold text-slate-300">
                 <Clock className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
                 {formatTime(callTimer)}

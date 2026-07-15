@@ -27,6 +27,7 @@ export default function OnlineConsultationSection() {
   // WebRTC States and Refs
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isRemoteConnected, setIsRemoteConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const candidatesAdded = useRef<Set<string>>(new Set());
@@ -191,6 +192,7 @@ export default function OnlineConsultationSection() {
 
     try {
       cleanupWebRTCInstance();
+      setConnectionStatus("connecting");
 
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -207,25 +209,53 @@ export default function OnlineConsultationSection() {
         pc.addTrack(track, localStream);
       });
 
-      // Handle remote tracks from the therapist
-      const remoteMediaStream = new MediaStream();
-      setRemoteStream(remoteMediaStream);
-
+      // Handle remote tracks from the therapist using robust stream binding
       pc.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => {
-          remoteMediaStream.addTrack(track);
-        });
+        console.log("Paciente recebeu track remoto:", event.track.kind);
         setIsRemoteConnected(true);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteMediaStream;
+        setConnectionStatus("connected");
+
+        let streamToUse: MediaStream;
+        if (remoteVideoRef.current && remoteVideoRef.current.srcObject instanceof MediaStream) {
+          streamToUse = remoteVideoRef.current.srcObject;
+        } else {
+          streamToUse = new MediaStream();
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = streamToUse;
+          }
+          setRemoteStream(streamToUse);
+        }
+
+        if (event.track) {
+          streamToUse.addTrack(event.track);
         }
       };
 
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+      const updateConnectionStatus = () => {
+        const state = pc.connectionState;
+        const iceState = pc.iceConnectionState;
+        console.log("WebRTC Patient states updated - Connection:", state, "ICE:", iceState);
+        
+        if (state === "connected" || iceState === "connected") {
+          setConnectionStatus("connected");
+          setIsRemoteConnected(true);
+        } else if (state === "connecting" || iceState === "checking") {
+          setConnectionStatus("connecting");
+        } else if (
+          state === "disconnected" || 
+          state === "failed" || 
+          state === "closed" || 
+          iceState === "disconnected" || 
+          iceState === "failed" || 
+          iceState === "closed"
+        ) {
+          setConnectionStatus("disconnected");
           setIsRemoteConnected(false);
         }
       };
+
+      pc.onconnectionstatechange = updateConnectionStatus;
+      pc.oniceconnectionstatechange = updateConnectionStatus;
 
       // Handle local ICE candidates
       pc.onicecandidate = async (event) => {
@@ -244,8 +274,9 @@ export default function OnlineConsultationSection() {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
 
-        // Handle Offer (if remote description is stable/unset)
-        if (data.offer && pc.signalingState === "stable") {
+        // Handle Offer (only if remote description is NOT set yet to break infinite SDP loops)
+        if (data.offer && !pc.remoteDescription) {
+          console.log("Paciente processando offer do terapeuta...");
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(console.error);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -274,6 +305,7 @@ export default function OnlineConsultationSection() {
 
     } catch (err) {
       console.error("Error setting up WebRTC patient:", err);
+      setConnectionStatus("disconnected");
     }
   };
 
@@ -288,6 +320,7 @@ export default function OnlineConsultationSection() {
       pcRef.current = null;
     }
     setIsRemoteConnected(false);
+    setConnectionStatus("disconnected");
   };
 
   const cleanupWebRTC = () => {
@@ -574,7 +607,27 @@ export default function OnlineConsultationSection() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
+            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 flex-wrap">
+              {/* Connection Status Indicator */}
+              {connectionStatus === "connected" && (
+                <div className="flex items-center gap-1.5 bg-green-950/60 border border-green-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-green-400 uppercase tracking-wider" id="status-connected">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                  Conectado
+                </div>
+              )}
+              {connectionStatus === "connecting" && (
+                <div className="flex items-center gap-1.5 bg-yellow-950/60 border border-yellow-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-yellow-400 uppercase tracking-wider" id="status-connecting">
+                  <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+                  Conectando...
+                </div>
+              )}
+              {connectionStatus === "disconnected" && (
+                <div className="flex items-center gap-1.5 bg-rose-950/60 border border-rose-800 px-3 py-1.5 rounded-full text-[10px] font-bold text-rose-400 uppercase tracking-wider" id="status-disconnected">
+                  <span className="w-1.5 h-1.5 bg-rose-400 rounded-full" />
+                  Desconectado
+                </div>
+              )}
+
               <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-full text-xs font-mono font-bold text-slate-300">
                 <Clock className="w-3.5 h-3.5 text-purple-400" />
                 {formatTime(callTimer)}

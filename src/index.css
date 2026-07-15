@@ -7,9 +7,13 @@
 }
 
 /* Sleek Interface design theme base styles */
-body {
+html, body, #root, #app-root {
   background-color: #FCFDFD;
   color: #1e293b; /* slate-800 */
+  overflow-y: auto !important;
+  height: auto !important;
+  min-height: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Animations for seamless transitions */
