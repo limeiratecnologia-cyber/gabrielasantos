@@ -113,35 +113,37 @@ export default function OnlineConsultationSection() {
     return () => clearInterval(interval);
   }, [isInCall]);
 
+  const requestCameraPermission = async () => {
+    if (!isInCall) return;
+    try {
+      setStreamError(false);
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setStream(mediaStream);
+      setStreamError(false);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = mediaStream;
+      }
+
+      // Apply initial track options without tearing down connection
+      mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
+      mediaStream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoOff;
+      });
+
+      // Initialize WebRTC as the Patient
+      await initializeWebRTCAsPatient(mediaStream);
+    } catch (err) {
+      console.warn("Camera/Microphone access was denied or unavailable:", err);
+      setStreamError(true);
+    }
+  };
+
   // Handle local camera access and WebRTC initialization
   useEffect(() => {
-    let activeStream: MediaStream | null = null;
-
     if (isInCall) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then(async (mediaStream) => {
-          activeStream = mediaStream;
-          setStream(mediaStream);
-          setStreamError(false);
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = mediaStream;
-          }
-
-          // Apply initial track options without tearing down connection
-          mediaStream.getAudioTracks().forEach(track => {
-            track.enabled = !isMuted;
-          });
-          mediaStream.getVideoTracks().forEach(track => {
-            track.enabled = !isVideoOff;
-          });
-
-          // Initialize WebRTC as the Patient
-          await initializeWebRTCAsPatient(mediaStream);
-        })
-        .catch((err) => {
-          console.warn("Camera/Microphone access was denied or unavailable:", err);
-          setStreamError(true);
-        });
+      requestCameraPermission();
     } else {
       cleanupWebRTC();
     }
@@ -238,13 +240,17 @@ export default function OnlineConsultationSection() {
           }).catch(console.error);
         }
 
-        // Handle Therapist ICE candidates
-        if (data.therapistCandidates && Array.isArray(data.therapistCandidates)) {
+        // Handle Therapist ICE candidates only if remote description is set
+        if (pc.remoteDescription && data.therapistCandidates && Array.isArray(data.therapistCandidates)) {
           for (const cand of data.therapistCandidates) {
             const candStr = JSON.stringify(cand);
             if (!candidatesAdded.current.has(candStr)) {
-              candidatesAdded.current.add(candStr);
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+                candidatesAdded.current.add(candStr);
+              } catch (e) {
+                console.error("Failed to add therapist candidate:", e);
+              }
             }
           }
         }
@@ -704,12 +710,32 @@ export default function OnlineConsultationSection() {
                        className="w-full h-full object-cover scale-x-[-1]"
                      />
                    ) : (
-                     <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 p-4 space-y-2 text-center">
-                       <div className="w-10 h-10 rounded-full bg-slate-850 border border-slate-750 flex items-center justify-center mx-auto shadow-inner">
-                         <VideoOff className="w-4.5 h-4.5 text-slate-500" />
+                     streamError ? (
+                       <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
+                         <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
+                           <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
+                         </div>
+                         <div>
+                           <h4 className="font-bold text-xs sm:text-sm text-red-400 leading-tight">Acesso Negado</h4>
+                           <p className="text-[10px] text-slate-400 max-w-[150px] mx-auto mb-2 leading-tight">
+                             Permita a câmera e microfone no navegador.
+                           </p>
+                           <button
+                             onClick={() => requestCameraPermission()}
+                             className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[9px] px-3 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
+                           >
+                             Autorizar Aparelho
+                           </button>
+                         </div>
                        </div>
-                       <span className="text-[10px] text-slate-400 font-semibold leading-tight">Sua Câmera Desativada</span>
-                     </div>
+                     ) : (
+                       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 p-4 space-y-2 text-center">
+                         <div className="w-10 h-10 rounded-full bg-slate-850 border border-slate-750 flex items-center justify-center mx-auto shadow-inner">
+                           <VideoOff className="w-4.5 h-4.5 text-slate-500" />
+                         </div>
+                         <span className="text-[10px] text-slate-400 font-semibold leading-tight">Sua Câmera Desativada</span>
+                       </div>
+                     )
                    )}
                    {/* Floating badge */}
                    <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-10">

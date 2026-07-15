@@ -85,35 +85,37 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
     }
   }, [roomCode, bookings, patients, selectedPatientId]);
 
+  const requestCameraPermission = async () => {
+    if (!isLive) return;
+    try {
+      setStreamError(false);
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setStream(mediaStream);
+      setStreamError(false);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = mediaStream;
+      }
+
+      // Apply initial mute and video-off track settings without tearing down connection
+      mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
+      mediaStream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoOff;
+      });
+
+      // Initialize WebRTC as the Therapist
+      await initializeWebRTCAsTherapist(mediaStream);
+    } catch (err) {
+      console.warn("Camera/Microphone access was denied or unavailable:", err);
+      setStreamError(true);
+    }
+  };
+
   // Handle local camera access and WebRTC initialization
   useEffect(() => {
-    let activeStream: MediaStream | null = null;
-
     if (isLive) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then(async (mediaStream) => {
-          activeStream = mediaStream;
-          setStream(mediaStream);
-          setStreamError(false);
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = mediaStream;
-          }
-
-          // Apply initial mute and video-off track settings without tearing down connection
-          mediaStream.getAudioTracks().forEach(track => {
-            track.enabled = !isMuted;
-          });
-          mediaStream.getVideoTracks().forEach(track => {
-            track.enabled = !isVideoOff;
-          });
-
-          // Initialize WebRTC as the Therapist
-          await initializeWebRTCAsTherapist(mediaStream);
-        })
-        .catch((err) => {
-          console.warn("Camera/Microphone access was denied or unavailable:", err);
-          setStreamError(true);
-        });
+      requestCameraPermission();
     } else {
       cleanupWebRTC();
     }
@@ -226,13 +228,17 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
           await pc.setRemoteDescription(remoteDesc).catch(console.error);
         }
 
-        // Handle Patient ICE candidates
-        if (data.patientCandidates && Array.isArray(data.patientCandidates)) {
+        // Handle Patient ICE candidates only if remote description is set
+        if (pc.remoteDescription && data.patientCandidates && Array.isArray(data.patientCandidates)) {
           for (const cand of data.patientCandidates) {
             const candStr = JSON.stringify(cand);
             if (!candidatesAdded.current.has(candStr)) {
-              candidatesAdded.current.add(candStr);
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+                candidatesAdded.current.add(candStr);
+              } catch (e) {
+                console.error("Failed to add patient candidate:", e);
+              }
             }
           }
         }
@@ -645,15 +651,35 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                        className="w-full h-full object-cover scale-x-[-1]"
                      />
                    ) : (
-                     <div className="text-center space-y-2 py-6">
-                       <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
-                         <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500" />
+                     streamError ? (
+                       <div className="text-center space-y-2.5 py-6 px-4 z-10 flex flex-col items-center">
+                         <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto">
+                           <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" />
+                         </div>
+                         <div>
+                           <h4 className="font-bold text-xs sm:text-sm text-red-400">Acesso Negado</h4>
+                           <p className="text-[10px] text-slate-400 max-w-[180px] sm:max-w-xs mx-auto mb-2">
+                             Permita o acesso à câmera e microfone no navegador.
+                           </p>
+                           <button
+                             onClick={() => requestCameraPermission()}
+                             className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] px-3.5 py-1.5 rounded-lg transition shadow-md cursor-pointer hover:scale-105 active:scale-95"
+                           >
+                             Autorizar Aparelho
+                           </button>
+                         </div>
                        </div>
-                       <div>
-                         <h4 className="font-bold text-xs sm:text-sm text-slate-300">Câmera Desativada</h4>
-                         <p className="text-[10px] text-slate-500 max-w-[200px] sm:max-w-xs mx-auto">Use os botões de controle para transmitir.</p>
+                     ) : (
+                       <div className="text-center space-y-2 py-6">
+                         <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto">
+                           <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500" />
+                         </div>
+                         <div>
+                           <h4 className="font-bold text-xs sm:text-sm text-slate-300">Câmera Desativada</h4>
+                           <p className="text-[10px] text-slate-500 max-w-[200px] sm:max-w-xs mx-auto">Use os botões de controle para transmitir.</p>
+                         </div>
                        </div>
-                     </div>
+                     )
                    )}
  
                    {/* Floating details badge */}
