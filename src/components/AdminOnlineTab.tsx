@@ -142,6 +142,20 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
     }
   }, [isVideoOff, stream]);
 
+  // Sync local video element with stream when element mounts or stream changes
+  useEffect(() => {
+    if (localVideoRef.current && stream) {
+      localVideoRef.current.srcObject = stream;
+    }
+  }, [stream, isVideoOff, streamError]);
+
+  // Sync remote video element with stream when element mounts or remote stream changes
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream, isRemoteConnected]);
+
   // Initialize WebRTC on the Therapist side
   const initializeWebRTCAsTherapist = async (localStream: MediaStream) => {
     if (!roomCode) return;
@@ -593,7 +607,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         </div>
       ) : (
         /* Therapist Live Broadcast workspace */
-        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-hidden shadow-2xl h-[720px] md:h-[680px] flex flex-col border border-slate-850 animate-fade-in relative font-sans">
+        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-visible md:overflow-hidden shadow-2xl h-auto md:h-[680px] flex flex-col border border-slate-850 animate-fade-in relative font-sans">
           
           {/* Top header bar */}
           <div className="bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
@@ -634,10 +648,10 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
           </div>
 
           {/* Main Workspace Stage */}
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+          <div className="flex-1 flex flex-col md:flex-row overflow-visible md:overflow-hidden relative">
             
              {/* Camera feed area */}
-             <div className="flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-hidden shrink-0 md:shrink">
+             <div className="flex-grow md:flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-visible md:overflow-hidden shrink-0 md:shrink">
                <div className="w-full h-full flex flex-col sm:flex-row md:block relative gap-3">
                  
                  {/* 1. Therapist Local Video Box */}
@@ -701,14 +715,12 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
  
                  {/* 2. Patient Remote Video Box - picture in picture on desktop, side-by-side split on mobile */}
                  <div className="flex-1 md:absolute md:bottom-4 md:right-4 md:w-56 md:aspect-video rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20">
-                    {isRemoteConnected && (
-                      <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-full object-cover absolute inset-0 z-30"
-                      />
-                    )}
+                    <video
+                      ref={remoteVideoRef}
+                      autoPlay
+                      playsInline
+                      className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
+                    />
                    <div className={`w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center ${isRemoteConnected ? 'hidden' : ''}`}>
                      {/* Glowing user circle */}
                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shadow">
@@ -735,7 +747,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
              </div>
 
             {/* Right sidebar tab section */}
-            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col flex-1 md:flex-none md:shrink-0 overflow-hidden">
+            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col h-[450px] md:h-auto md:shrink-0 overflow-hidden">
               {/* Sidebar header selector */}
               <div className="flex border-b border-slate-800 text-xs font-bold text-slate-400">
                 <button

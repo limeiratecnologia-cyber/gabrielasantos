@@ -170,6 +170,20 @@ export default function OnlineConsultationSection() {
     }
   }, [isVideoOff, stream]);
 
+  // Sync local video element with stream when element mounts or stream changes
+  useEffect(() => {
+    if (localVideoRef.current && stream) {
+      localVideoRef.current.srcObject = stream;
+    }
+  }, [stream, isVideoOff, streamError]);
+
+  // Sync remote video element with stream when element mounts or remote stream changes
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream, isRemoteConnected]);
+
   // Initialize WebRTC as Patient
   const initializeWebRTCAsPatient = async (localStream: MediaStream) => {
     const sanitizedCode = roomCode.trim().toUpperCase();
@@ -544,7 +558,7 @@ export default function OnlineConsultationSection() {
         </div>
       ) : (
         /* Video Call active interface */
-        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-hidden shadow-2xl h-[720px] md:h-[650px] flex flex-col border border-slate-800 animate-fade-in relative">
+        <div className="bg-slate-950 text-slate-100 rounded-3xl overflow-visible md:overflow-hidden shadow-2xl h-auto md:h-[650px] flex flex-col border border-slate-800 animate-fade-in relative">
           
           {/* Header Controls bar */}
           <div className="bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 z-10 shrink-0">
@@ -573,22 +587,20 @@ export default function OnlineConsultationSection() {
           </div>
 
           {/* Main Stage Grid (Video areas & Sidebar) */}
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+          <div className="flex-1 flex flex-col md:flex-row overflow-visible md:overflow-hidden relative">
             
              {/* Stage containing Video Streams */}
-             <div className="flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-hidden shrink-0 md:shrink">
+             <div className="flex-grow md:flex-1 min-h-[360px] md:min-h-0 bg-slate-950 p-3 md:p-4 relative flex items-center justify-center overflow-visible md:overflow-hidden shrink-0 md:shrink">
                <div className="w-full h-full flex flex-col sm:flex-row md:block relative gap-3">
                  
                  {/* 1. Remote Video Stream / Waiting Room - Full size on desktop, split on mobile */}
                  <div className="flex-1 md:absolute md:inset-0 rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/40 border border-slate-800/60 overflow-hidden relative flex flex-col items-center justify-center transition-all shadow-lg">
-                    {therapistIsLive && isRemoteConnected && (
-                      <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-full object-cover absolute inset-0 z-30"
-                      />
-                    )}
+                    <video
+                      ref={remoteVideoRef}
+                      autoPlay
+                      playsInline
+                      className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${therapistIsLive && isRemoteConnected ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'}`}
+                    />
                    {therapistIsLive && !isRemoteConnected ? (
                      /* Simulated professional screen */
                      <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 animate-fade-in p-4">
@@ -747,7 +759,7 @@ export default function OnlineConsultationSection() {
              </div>
 
             {/* Sidebar console */}
-            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col flex-1 md:flex-none md:shrink-0 overflow-hidden">
+            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900 flex flex-col h-[450px] md:h-auto md:shrink-0 overflow-hidden">
               
               {/* Tabs selector */}
               <div className="flex border-b border-slate-800 text-xs font-bold text-slate-400">
