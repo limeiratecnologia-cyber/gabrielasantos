@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import AdminOnlineTab from "./AdminOnlineTab";
 import { Booking, Approach, ActiveTab, Patient, ClinicalEvolution, HelpPsiEmergency, PlannedSession } from "../types";
 import { CLINIC_INFO, APPROACHES, IMAGES } from "../data";
+import { db } from "../lib/firebase";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { 
   getBookingsFromDb, 
   saveBookingToDb, 
@@ -316,24 +318,32 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
   ];
 
   useEffect(() => {
-    getBookingsFromDb().then((list) => {
+    // Real-time listener for bookings
+    const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
+    const unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
+      const list: Booking[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Booking);
+      });
       setBookings(list);
-    }).catch((err) => {
-      console.error("Erro ao carregar agendamentos:", err);
-      const saved = localStorage.getItem("serenamente_bookings");
-      if (saved) {
-        try {
-          setBookings(JSON.parse(saved));
-        } catch (e) {
-          console.error(e);
-        }
-      }
+      localStorage.setItem("serenamente_bookings", JSON.stringify(list));
+    }, (err) => {
+      console.error("Erro no onSnapshot do bookings:", err);
+      getBookingsFromDb().then(setBookings).catch(console.error);
     });
 
-    getPatientsFromDb().then((list) => {
+    // Real-time listener for registered patients
+    const patientsQuery = query(collection(db, "patients"), orderBy("name", "asc"));
+    const unsubscribePatients = onSnapshot(patientsQuery, (snapshot) => {
+      const list: Patient[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Patient);
+      });
       setRegisteredPatients(list);
-    }).catch((err) => {
-      console.error("Erro ao carregar pacientes:", err);
+      localStorage.setItem("serenamente_patients", JSON.stringify(list));
+    }, (err) => {
+      console.error("Erro no onSnapshot do patients:", err);
+      getPatientsFromDb().then(setRegisteredPatients).catch(console.error);
     });
 
     getClinicInfoFromDb().then((info) => {
@@ -351,6 +361,11 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
         setClinicInfo(CLINIC_INFO);
       }
     });
+
+    return () => {
+      unsubscribeBookings();
+      unsubscribePatients();
+    };
   }, []);
 
   useEffect(() => {
@@ -1185,7 +1200,56 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
   const [savingState, setSavingState] = useState(false);
 
   useEffect(() => {
-    fetchClinicalData();
+    setIsLoading(true);
+    
+    // Real-time listener for patients
+    const patientsQuery = query(collection(db, "patients"));
+    const unsubscribePatients = onSnapshot(patientsQuery, (snapshot) => {
+      const list: Patient[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Patient);
+      });
+      setPatients(list);
+      localStorage.setItem("serenamente_patients", JSON.stringify(list));
+      setIsLoading(false);
+    }, (err) => {
+      console.error("Erro no onSnapshot do patients (Clinical):", err);
+      getPatientsFromDb().then(setPatients).catch(console.error);
+    });
+
+    // Real-time listener for evolutions
+    const evolutionsQuery = query(collection(db, "evolutions"));
+    const unsubscribeEvolutions = onSnapshot(evolutionsQuery, (snapshot) => {
+      const list: ClinicalEvolution[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
+      });
+      setEvolutions(list);
+      localStorage.setItem("serenamente_evolutions", JSON.stringify(list));
+    }, (err) => {
+      console.error("Erro no onSnapshot do evolutions:", err);
+      getEvolutionsFromDb().then(setEvolutions).catch(console.error);
+    });
+
+    // Real-time listener for planned sessions
+    const plannedSessionsQuery = query(collection(db, "planned_sessions"));
+    const unsubscribePlannedSessions = onSnapshot(plannedSessionsQuery, (snapshot) => {
+      const list: PlannedSession[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as PlannedSession);
+      });
+      setPlannedSessions(list);
+      localStorage.setItem("serenamente_planned_sessions", JSON.stringify(list));
+    }, (err) => {
+      console.error("Erro no onSnapshot do planned_sessions:", err);
+      getPlannedSessionsFromDb().then(setPlannedSessions).catch(console.error);
+    });
+
+    return () => {
+      unsubscribePatients();
+      unsubscribeEvolutions();
+      unsubscribePlannedSessions();
+    };
   }, []);
 
   const fetchClinicalData = async () => {
@@ -3247,7 +3311,25 @@ function AdminHelpPsiTab() {
   };
 
   useEffect(() => {
-    loadEmergencies();
+    setLoading(true);
+    const qEmergencies = query(collection(db, "helppsi_emergencies"));
+    const unsubscribeEmergencies = onSnapshot(qEmergencies, (snapshot) => {
+      const list: HelpPsiEmergency[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as HelpPsiEmergency);
+      });
+      list.sort((a, b) => b.timestamp - a.timestamp);
+      setEmergencies(list);
+      localStorage.setItem("serenamente_helppsi", JSON.stringify(list));
+      setLoading(false);
+    }, (err) => {
+      console.error("Erro no onSnapshot de helppsi_emergencies:", err);
+      getHelpPsiEmergenciesFromDb().then(setEmergencies).catch(console.error).finally(() => setLoading(false));
+    });
+
+    return () => {
+      unsubscribeEmergencies();
+    };
   }, []);
 
   const handleToggleStatus = async (item: HelpPsiEmergency) => {
