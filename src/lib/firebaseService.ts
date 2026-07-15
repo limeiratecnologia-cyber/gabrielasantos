@@ -234,7 +234,16 @@ export async function getPatientsFromDb(): Promise<Patient[]> {
       return patients;
     } else {
       const saved = localStorage.getItem("serenamente_patients");
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const localPatients: Patient[] = JSON.parse(saved);
+        // Sync back to Firestore so all platforms synchronize
+        for (const p of localPatients) {
+          const docRef = doc(db, "patients", p.id);
+          await setDoc(docRef, p);
+        }
+        return localPatients;
+      }
+      return [];
     }
   } catch (error) {
     console.error("Error fetching patients from Firestore:", error);
@@ -311,7 +320,16 @@ export async function getEvolutionsFromDb(): Promise<ClinicalEvolution[]> {
       return evolutions;
     } else {
       const saved = localStorage.getItem("serenamente_evolutions");
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const localEvolutions: ClinicalEvolution[] = JSON.parse(saved);
+        // Sync back to Firestore so all platforms synchronize
+        for (const ev of localEvolutions) {
+          const docRef = doc(db, "evolutions", ev.id);
+          await setDoc(docRef, ev);
+        }
+        return localEvolutions;
+      }
+      return [];
     }
   } catch (error) {
     console.error("Error fetching evolutions from Firestore:", error);
@@ -383,11 +401,25 @@ export async function getHelpPsiEmergenciesFromDb(): Promise<HelpPsiEmergency[]>
       emergencies.push({ id: doc.id, ...doc.data() } as HelpPsiEmergency);
     });
 
-    // Sort descending by timestamp (newest first)
-    emergencies.sort((a, b) => b.timestamp - a.timestamp);
-
-    localStorage.setItem("serenamente_helppsi", JSON.stringify(emergencies));
-    return emergencies;
+    if (emergencies.length > 0) {
+      // Sort descending by timestamp (newest first)
+      emergencies.sort((a, b) => b.timestamp - a.timestamp);
+      localStorage.setItem("serenamente_helppsi", JSON.stringify(emergencies));
+      return emergencies;
+    } else {
+      const saved = localStorage.getItem("serenamente_helppsi");
+      if (saved) {
+        const localEmergencies: HelpPsiEmergency[] = JSON.parse(saved);
+        // Sync back to Firestore so all platforms synchronize
+        for (const e of localEmergencies) {
+          const docRef = doc(db, "helppsi_emergencies", e.id);
+          await setDoc(docRef, e);
+        }
+        localEmergencies.sort((a, b) => b.timestamp - a.timestamp);
+        return localEmergencies;
+      }
+      return [];
+    }
   } catch (error) {
     console.error("Error fetching HelpPsi emergencies:", error);
     const saved = localStorage.getItem("serenamente_helppsi");
@@ -460,8 +492,22 @@ export async function getPlannedSessionsFromDb(): Promise<PlannedSession[]> {
       sessions.push({ id: doc.id, ...doc.data() } as PlannedSession);
     });
 
-    localStorage.setItem("serenamente_planned_sessions", JSON.stringify(sessions));
-    return sessions;
+    if (sessions.length > 0) {
+      localStorage.setItem("serenamente_planned_sessions", JSON.stringify(sessions));
+      return sessions;
+    } else {
+      const saved = localStorage.getItem("serenamente_planned_sessions");
+      if (saved) {
+        const localSessions: PlannedSession[] = JSON.parse(saved);
+        // Sync back to Firestore so all platforms synchronize
+        for (const s of localSessions) {
+          const docRef = doc(db, "planned_sessions", s.id);
+          await setDoc(docRef, s);
+        }
+        return localSessions;
+      }
+      return [];
+    }
   } catch (error) {
     console.error("Error fetching planned sessions:", error);
     const saved = localStorage.getItem("serenamente_planned_sessions");

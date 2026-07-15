@@ -11,5 +11,20 @@ service cloud.firestore {
     match /approaches/{document} {
       allow read, write: if true;
     }
+    match /patients/{document} {
+      allow read, write: if true;
+    }
+    match /evolutions/{document} {
+      allow read, write: if true;
+    }
+    match /helppsi_emergencies/{document} {
+      allow read, write: if true;
+    }
+    match /planned_sessions/{document} {
+      allow read, write: if true;
+    }
+    match /room_sessions/{document} {
+      allow read, write: if true;
+    }
   }
 }

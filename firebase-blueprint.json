@@ -24,6 +24,21 @@
     },
     "approaches": {
       "documents": {}
+    },
+    "patients": {
+      "documents": {}
+    },
+    "evolutions": {
+      "documents": {}
+    },
+    "helppsi_emergencies": {
+      "documents": {}
+    },
+    "planned_sessions": {
+      "documents": {}
+    },
+    "room_sessions": {
+      "documents": {}
     }
   }
 }
