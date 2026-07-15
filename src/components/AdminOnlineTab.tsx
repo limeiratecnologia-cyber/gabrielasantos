@@ -22,6 +22,13 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
   const [successMsg, setSuccessMsg] = useState("");
   const [copied, setCopied] = useState(false);
 
+  // WebRTC States and Refs
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isRemoteConnected, setIsRemoteConnected] = useState(false);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const candidatesAdded = useRef<Set<string>>(new Set());
+
   // Stream options
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -52,14 +59,6 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
   // Handle preselected room from agenda
   useEffect(() => {
     if (preselectedRoom) {
-      const foundBooking = bookings.find(b => b.roomCode === preselectedRoom.roomCode);
-      if (foundBooking) {
-        // Find matching patient by phone/email or name
-        const match = patients.find(p => p.name.toLowerCase() === foundBooking.clientName.toLowerCase() || p.phone === foundBooking.clientPhone);
-        if (match) {
-          setSelectedPatientId(match.id);
-        }
-      }
       setRoomCode(preselectedRoom.roomCode);
       // Auto trigger live start
       handleStartLive(preselectedRoom.roomCode, preselectedRoom.clientName);
@@ -67,36 +66,206 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
         onClearPreselectedRoom();
       }
     }
-  }, [preselectedRoom, bookings, patients, onClearPreselectedRoom]);
+  }, [preselectedRoom]);
 
-  // Handle local camera access
+  // Reactive matching to resolve race condition on smartphones / slow connections
   useEffect(() => {
-    if (isLive && !isVideoOff) {
+    if (roomCode && !selectedPatientId && bookings.length > 0 && patients.length > 0) {
+      const foundBooking = bookings.find(b => b.roomCode === roomCode);
+      if (foundBooking) {
+        const match = patients.find(
+          p => p.name.toLowerCase() === foundBooking.clientName.toLowerCase() || 
+               p.phone === foundBooking.clientPhone ||
+               p.email === foundBooking.clientEmail
+        );
+        if (match) {
+          setSelectedPatientId(match.id);
+        }
+      }
+    }
+  }, [roomCode, bookings, patients, selectedPatientId]);
+
+  // Handle local camera access and WebRTC initialization
+  useEffect(() => {
+    let activeStream: MediaStream | null = null;
+
+    if (isLive) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((mediaStream) => {
+        .then(async (mediaStream) => {
+          activeStream = mediaStream;
           setStream(mediaStream);
           setStreamError(false);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = mediaStream;
           }
+
+          // Apply initial mute and video-off track settings without tearing down connection
+          mediaStream.getAudioTracks().forEach(track => {
+            track.enabled = !isMuted;
+          });
+          mediaStream.getVideoTracks().forEach(track => {
+            track.enabled = !isVideoOff;
+          });
+
+          // Initialize WebRTC as the Therapist
+          await initializeWebRTCAsTherapist(mediaStream);
         })
         .catch((err) => {
           console.warn("Camera/Microphone access was denied or unavailable:", err);
           setStreamError(true);
         });
     } else {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-        setStream(null);
-      }
+      cleanupWebRTC();
     }
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      cleanupWebRTC();
     };
-  }, [isLive, isVideoOff]);
+  }, [isLive]);
+
+  // Handle live track updates on active stream
+  useEffect(() => {
+    if (stream) {
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
+    }
+  }, [isMuted, stream]);
+
+  useEffect(() => {
+    if (stream) {
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoOff;
+      });
+    }
+  }, [isVideoOff, stream]);
+
+  // Initialize WebRTC on the Therapist side
+  const initializeWebRTCAsTherapist = async (localStream: MediaStream) => {
+    if (!roomCode) return;
+    try {
+      cleanupWebRTCInstance();
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" }
+        ]
+      });
+      pcRef.current = pc;
+      candidatesAdded.current.clear();
+
+      // Add local stream tracks to PeerConnection
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+
+      // Handle remote tracks from the patient
+      const remoteMediaStream = new MediaStream();
+      setRemoteStream(remoteMediaStream);
+      
+      pc.ontrack = (event) => {
+        event.streams[0].getTracks().forEach(track => {
+          remoteMediaStream.addTrack(track);
+        });
+        setIsRemoteConnected(true);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteMediaStream;
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+          setIsRemoteConnected(false);
+        }
+      };
+
+      // Handle local ICE candidates
+      pc.onicecandidate = async (event) => {
+        if (event.candidate && roomCode) {
+          const roomRef = doc(db, "room_sessions", roomCode);
+          await updateDoc(roomRef, {
+            therapistCandidates: arrayUnion(event.candidate.toJSON())
+          }).catch(console.error);
+        }
+      };
+
+      // Create Offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const roomRef = doc(db, "room_sessions", roomCode);
+      await updateDoc(roomRef, {
+        offer: { type: offer.type, sdp: offer.sdp },
+        answer: null,
+        therapistCandidates: [],
+        patientCandidates: [],
+        therapistIsLive: true,
+        lastUpdated: Date.now()
+      }).catch(async () => {
+        // Document might not exist yet, fallback to setDoc
+        await setDoc(roomRef, {
+          roomCode,
+          offer: { type: offer.type, sdp: offer.sdp },
+          therapistIsLive: true,
+          therapistCandidates: [],
+          patientCandidates: [],
+          lastUpdated: Date.now()
+        }, { merge: true });
+      });
+
+      // Subscribe to real-time Answer & Patient ICE candidate changes
+      const unsubscribe = onSnapshot(roomRef, async (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.data();
+
+        // Handle Patient SDP Answer
+        if (data.answer && pc.signalingState === "have-local-offer") {
+          const remoteDesc = new RTCSessionDescription(data.answer);
+          await pc.setRemoteDescription(remoteDesc).catch(console.error);
+        }
+
+        // Handle Patient ICE candidates
+        if (data.patientCandidates && Array.isArray(data.patientCandidates)) {
+          for (const cand of data.patientCandidates) {
+            const candStr = JSON.stringify(cand);
+            if (!candidatesAdded.current.has(candStr)) {
+              candidatesAdded.current.add(candStr);
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+            }
+          }
+        }
+      });
+
+      (pc as any)._unsubscribeFirestore = unsubscribe;
+
+    } catch (err) {
+      console.error("Error setting up WebRTC therapist:", err);
+    }
+  };
+
+  const cleanupWebRTCInstance = () => {
+    if (pcRef.current) {
+      if ((pcRef.current as any)._unsubscribeFirestore) {
+        (pcRef.current as any)._unsubscribeFirestore();
+      }
+      try {
+        pcRef.current.close();
+      } catch (e) {}
+      pcRef.current = null;
+    }
+    setIsRemoteConnected(false);
+  };
+
+  const cleanupWebRTC = () => {
+    cleanupWebRTCInstance();
+    setRemoteStream(null);
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+  };
 
   // Timer for session
   useEffect(() => {
@@ -506,7 +675,15 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
  
                  {/* 2. Patient Remote Video Box - picture in picture on desktop, side-by-side split on mobile */}
                  <div className="flex-1 md:absolute md:bottom-4 md:right-4 md:w-56 md:aspect-video rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden relative flex items-center justify-center shadow-2xl z-20">
-                   <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center">
+                    {isRemoteConnected && (
+                      <video
+                        ref={remoteVideoRef}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover absolute inset-0 z-30"
+                      />
+                    )}
+                   <div className={`w-full h-full flex flex-col items-center justify-center bg-slate-950/85 p-4 space-y-2 text-center ${isRemoteConnected ? 'hidden' : ''}`}>
                      {/* Glowing user circle */}
                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shadow">
                        <User className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
@@ -523,8 +700,8 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                    </div>
                    
                    {/* Floating badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-10">
-                     PACIENTE
+                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wider backdrop-blur-sm z-40">
+                     {isRemoteConnected ? "PACIENTE (AO VIVO)" : "PACIENTE"}
                    </div>
                  </div>
  

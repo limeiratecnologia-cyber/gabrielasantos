@@ -50,29 +50,36 @@ export async function getBookingsFromDb(): Promise<Booking[]> {
   try {
     const q = query(collection(db, "bookings"), orderBy("date", "asc"));
     const querySnapshot = await getDocs(q);
-    const bookings: Booking[] = [];
+    const firestoreBookings: Booking[] = [];
     querySnapshot.forEach((doc) => {
-      bookings.push({ id: doc.id, ...doc.data() } as Booking);
+      firestoreBookings.push({ id: doc.id, ...doc.data() } as Booking);
     });
 
-    if (bookings.length > 0) {
-      // Also cache in local storage for instant loads
-      localStorage.setItem("serenamente_bookings", JSON.stringify(bookings));
-      return bookings;
-    } else {
-      // If Firestore is empty, check localStorage
-      const saved = localStorage.getItem("serenamente_bookings");
-      if (saved) {
-        const localBookings: Booking[] = JSON.parse(saved);
-        // Save them to Firestore as initial seed
-        for (const booking of localBookings) {
-          const docRef = doc(db, "bookings", booking.id);
-          await setDoc(docRef, booking);
-        }
-        return localBookings;
+    const saved = localStorage.getItem("serenamente_bookings");
+    const localBookings: Booking[] = saved ? JSON.parse(saved) : [];
+
+    const mergedMap = new Map<string, Booking>();
+    
+    localBookings.forEach(b => {
+      if (b && b.id) mergedMap.set(b.id, b);
+    });
+    
+    firestoreBookings.forEach(b => {
+      if (b && b.id) mergedMap.set(b.id, b);
+    });
+
+    const mergedList = Array.from(mergedMap.values());
+
+    for (const b of mergedList) {
+      const existsInFirestore = firestoreBookings.some(fb => fb.id === b.id);
+      if (!existsInFirestore) {
+        const docRef = doc(db, "bookings", b.id);
+        await setDoc(docRef, b, { merge: true }).catch(console.error);
       }
-      return [];
     }
+
+    localStorage.setItem("serenamente_bookings", JSON.stringify(mergedList));
+    return mergedList;
   } catch (error) {
     console.error("Error fetching bookings from Firestore:", error);
     const saved = localStorage.getItem("serenamente_bookings");
@@ -224,27 +231,39 @@ export async function deleteApproachFromDb(id: string): Promise<void> {
 export async function getPatientsFromDb(): Promise<Patient[]> {
   try {
     const querySnapshot = await getDocs(collection(db, "patients"));
-    const patients: Patient[] = [];
+    const firestorePatients: Patient[] = [];
     querySnapshot.forEach((doc) => {
-      patients.push({ id: doc.id, ...doc.data() } as Patient);
+      firestorePatients.push({ id: doc.id, ...doc.data() } as Patient);
     });
 
-    if (patients.length > 0) {
-      localStorage.setItem("serenamente_patients", JSON.stringify(patients));
-      return patients;
-    } else {
-      const saved = localStorage.getItem("serenamente_patients");
-      if (saved) {
-        const localPatients: Patient[] = JSON.parse(saved);
-        // Sync back to Firestore so all platforms synchronize
-        for (const p of localPatients) {
-          const docRef = doc(db, "patients", p.id);
-          await setDoc(docRef, p);
-        }
-        return localPatients;
+    const saved = localStorage.getItem("serenamente_patients");
+    const localPatients: Patient[] = saved ? JSON.parse(saved) : [];
+
+    const mergedPatientsMap = new Map<string, Patient>();
+    
+    // Seed with local patients first
+    localPatients.forEach(p => {
+      if (p && p.id) mergedPatientsMap.set(p.id, p);
+    });
+    
+    // Firestore takes priority and overrides local
+    firestorePatients.forEach(p => {
+      if (p && p.id) mergedPatientsMap.set(p.id, p);
+    });
+
+    const mergedPatients = Array.from(mergedPatientsMap.values());
+
+    // Upload local-only patients to Firestore in background
+    for (const p of mergedPatients) {
+      const existsInFirestore = firestorePatients.some(fp => fp.id === p.id);
+      if (!existsInFirestore) {
+        const docRef = doc(db, "patients", p.id);
+        await setDoc(docRef, p, { merge: true }).catch(console.error);
       }
-      return [];
     }
+
+    localStorage.setItem("serenamente_patients", JSON.stringify(mergedPatients));
+    return mergedPatients;
   } catch (error) {
     console.error("Error fetching patients from Firestore:", error);
     const saved = localStorage.getItem("serenamente_patients");
@@ -310,27 +329,36 @@ export async function deletePatientFromDb(id: string): Promise<void> {
 export async function getEvolutionsFromDb(): Promise<ClinicalEvolution[]> {
   try {
     const querySnapshot = await getDocs(collection(db, "evolutions"));
-    const evolutions: ClinicalEvolution[] = [];
+    const firestoreEvolutions: ClinicalEvolution[] = [];
     querySnapshot.forEach((doc) => {
-      evolutions.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
+      firestoreEvolutions.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
     });
 
-    if (evolutions.length > 0) {
-      localStorage.setItem("serenamente_evolutions", JSON.stringify(evolutions));
-      return evolutions;
-    } else {
-      const saved = localStorage.getItem("serenamente_evolutions");
-      if (saved) {
-        const localEvolutions: ClinicalEvolution[] = JSON.parse(saved);
-        // Sync back to Firestore so all platforms synchronize
-        for (const ev of localEvolutions) {
-          const docRef = doc(db, "evolutions", ev.id);
-          await setDoc(docRef, ev);
-        }
-        return localEvolutions;
+    const saved = localStorage.getItem("serenamente_evolutions");
+    const localEvolutions: ClinicalEvolution[] = saved ? JSON.parse(saved) : [];
+
+    const mergedMap = new Map<string, ClinicalEvolution>();
+    
+    localEvolutions.forEach(e => {
+      if (e && e.id) mergedMap.set(e.id, e);
+    });
+    
+    firestoreEvolutions.forEach(e => {
+      if (e && e.id) mergedMap.set(e.id, e);
+    });
+
+    const mergedList = Array.from(mergedMap.values());
+
+    for (const e of mergedList) {
+      const existsInFirestore = firestoreEvolutions.some(fe => fe.id === e.id);
+      if (!existsInFirestore) {
+        const docRef = doc(db, "evolutions", e.id);
+        await setDoc(docRef, e, { merge: true }).catch(console.error);
       }
-      return [];
     }
+
+    localStorage.setItem("serenamente_evolutions", JSON.stringify(mergedList));
+    return mergedList;
   } catch (error) {
     console.error("Error fetching evolutions from Firestore:", error);
     const saved = localStorage.getItem("serenamente_evolutions");
@@ -396,30 +424,37 @@ export async function deleteEvolutionFromDb(id: string): Promise<void> {
 export async function getHelpPsiEmergenciesFromDb(): Promise<HelpPsiEmergency[]> {
   try {
     const querySnapshot = await getDocs(collection(db, "helppsi_emergencies"));
-    const emergencies: HelpPsiEmergency[] = [];
+    const firestoreEmergencies: HelpPsiEmergency[] = [];
     querySnapshot.forEach((doc) => {
-      emergencies.push({ id: doc.id, ...doc.data() } as HelpPsiEmergency);
+      firestoreEmergencies.push({ id: doc.id, ...doc.data() } as HelpPsiEmergency);
     });
 
-    if (emergencies.length > 0) {
-      // Sort descending by timestamp (newest first)
-      emergencies.sort((a, b) => b.timestamp - a.timestamp);
-      localStorage.setItem("serenamente_helppsi", JSON.stringify(emergencies));
-      return emergencies;
-    } else {
-      const saved = localStorage.getItem("serenamente_helppsi");
-      if (saved) {
-        const localEmergencies: HelpPsiEmergency[] = JSON.parse(saved);
-        // Sync back to Firestore so all platforms synchronize
-        for (const e of localEmergencies) {
-          const docRef = doc(db, "helppsi_emergencies", e.id);
-          await setDoc(docRef, e);
-        }
-        localEmergencies.sort((a, b) => b.timestamp - a.timestamp);
-        return localEmergencies;
+    const saved = localStorage.getItem("serenamente_helppsi");
+    const localEmergencies: HelpPsiEmergency[] = saved ? JSON.parse(saved) : [];
+
+    const mergedMap = new Map<string, HelpPsiEmergency>();
+    
+    localEmergencies.forEach(e => {
+      if (e && e.id) mergedMap.set(e.id, e);
+    });
+    
+    firestoreEmergencies.forEach(e => {
+      if (e && e.id) mergedMap.set(e.id, e);
+    });
+
+    const mergedList = Array.from(mergedMap.values());
+
+    for (const e of mergedList) {
+      const existsInFirestore = firestoreEmergencies.some(fe => fe.id === e.id);
+      if (!existsInFirestore) {
+        const docRef = doc(db, "helppsi_emergencies", e.id);
+        await setDoc(docRef, e, { merge: true }).catch(console.error);
       }
-      return [];
     }
+
+    mergedList.sort((a, b) => b.timestamp - a.timestamp);
+    localStorage.setItem("serenamente_helppsi", JSON.stringify(mergedList));
+    return mergedList;
   } catch (error) {
     console.error("Error fetching HelpPsi emergencies:", error);
     const saved = localStorage.getItem("serenamente_helppsi");
@@ -487,27 +522,36 @@ export async function deleteHelpPsiEmergencyFromDb(id: string): Promise<void> {
 export async function getPlannedSessionsFromDb(): Promise<PlannedSession[]> {
   try {
     const querySnapshot = await getDocs(collection(db, "planned_sessions"));
-    const sessions: PlannedSession[] = [];
+    const firestoreSessions: PlannedSession[] = [];
     querySnapshot.forEach((doc) => {
-      sessions.push({ id: doc.id, ...doc.data() } as PlannedSession);
+      firestoreSessions.push({ id: doc.id, ...doc.data() } as PlannedSession);
     });
 
-    if (sessions.length > 0) {
-      localStorage.setItem("serenamente_planned_sessions", JSON.stringify(sessions));
-      return sessions;
-    } else {
-      const saved = localStorage.getItem("serenamente_planned_sessions");
-      if (saved) {
-        const localSessions: PlannedSession[] = JSON.parse(saved);
-        // Sync back to Firestore so all platforms synchronize
-        for (const s of localSessions) {
-          const docRef = doc(db, "planned_sessions", s.id);
-          await setDoc(docRef, s);
-        }
-        return localSessions;
+    const saved = localStorage.getItem("serenamente_planned_sessions");
+    const localSessions: PlannedSession[] = saved ? JSON.parse(saved) : [];
+
+    const mergedMap = new Map<string, PlannedSession>();
+    
+    localSessions.forEach(s => {
+      if (s && s.id) mergedMap.set(s.id, s);
+    });
+    
+    firestoreSessions.forEach(s => {
+      if (s && s.id) mergedMap.set(s.id, s);
+    });
+
+    const mergedList = Array.from(mergedMap.values());
+
+    for (const s of mergedList) {
+      const existsInFirestore = firestoreSessions.some(fs => fs.id === s.id);
+      if (!existsInFirestore) {
+        const docRef = doc(db, "planned_sessions", s.id);
+        await setDoc(docRef, s, { merge: true }).catch(console.error);
       }
-      return [];
     }
+
+    localStorage.setItem("serenamente_planned_sessions", JSON.stringify(mergedList));
+    return mergedList;
   } catch (error) {
     console.error("Error fetching planned sessions:", error);
     const saved = localStorage.getItem("serenamente_planned_sessions");

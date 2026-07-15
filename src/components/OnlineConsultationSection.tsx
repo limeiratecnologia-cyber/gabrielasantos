@@ -24,6 +24,13 @@ export default function OnlineConsultationSection() {
   const [streamError, setStreamError] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // WebRTC States and Refs
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isRemoteConnected, setIsRemoteConnected] = useState(false);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const candidatesAdded = useRef<Set<string>>(new Set());
+
   // Breathing guide states for waiting room
   const [breathState, setBreathState] = useState<"idle" | "inhale" | "hold" | "exhale">("idle");
   const [breathCycle, setBreathCycle] = useState(0);
@@ -106,34 +113,171 @@ export default function OnlineConsultationSection() {
     return () => clearInterval(interval);
   }, [isInCall]);
 
-  // Handle local camera access
+  // Handle local camera access and WebRTC initialization
   useEffect(() => {
-    if (isInCall && !isVideoOff) {
+    let activeStream: MediaStream | null = null;
+
+    if (isInCall) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((mediaStream) => {
+        .then(async (mediaStream) => {
+          activeStream = mediaStream;
           setStream(mediaStream);
           setStreamError(false);
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = mediaStream;
           }
+
+          // Apply initial track options without tearing down connection
+          mediaStream.getAudioTracks().forEach(track => {
+            track.enabled = !isMuted;
+          });
+          mediaStream.getVideoTracks().forEach(track => {
+            track.enabled = !isVideoOff;
+          });
+
+          // Initialize WebRTC as the Patient
+          await initializeWebRTCAsPatient(mediaStream);
         })
         .catch((err) => {
           console.warn("Camera/Microphone access was denied or unavailable:", err);
           setStreamError(true);
         });
     } else {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-        setStream(null);
-      }
+      cleanupWebRTC();
     }
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      cleanupWebRTC();
     };
-  }, [isInCall, isVideoOff]);
+  }, [isInCall]);
+
+  // Handle live track updates on active stream
+  useEffect(() => {
+    if (stream) {
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
+    }
+  }, [isMuted, stream]);
+
+  useEffect(() => {
+    if (stream) {
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoOff;
+      });
+    }
+  }, [isVideoOff, stream]);
+
+  // Initialize WebRTC as Patient
+  const initializeWebRTCAsPatient = async (localStream: MediaStream) => {
+    const sanitizedCode = roomCode.trim().toUpperCase();
+    if (!sanitizedCode || sanitizedCode === "DEMO" || sanitizedCode === "TESTE") return;
+
+    try {
+      cleanupWebRTCInstance();
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" }
+        ]
+      });
+      pcRef.current = pc;
+      candidatesAdded.current.clear();
+
+      // Add local tracks to PeerConnection
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+
+      // Handle remote tracks from the therapist
+      const remoteMediaStream = new MediaStream();
+      setRemoteStream(remoteMediaStream);
+
+      pc.ontrack = (event) => {
+        event.streams[0].getTracks().forEach(track => {
+          remoteMediaStream.addTrack(track);
+        });
+        setIsRemoteConnected(true);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteMediaStream;
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+          setIsRemoteConnected(false);
+        }
+      };
+
+      // Handle local ICE candidates
+      pc.onicecandidate = async (event) => {
+        if (event.candidate) {
+          const roomRef = doc(db, "room_sessions", sanitizedCode);
+          await updateDoc(roomRef, {
+            patientCandidates: arrayUnion(event.candidate.toJSON())
+          }).catch(console.error);
+        }
+      };
+
+      // Read Offer, create Answer, subscribe to therapist ICE candidates
+      const roomRef = doc(db, "room_sessions", sanitizedCode);
+      
+      const unsubscribe = onSnapshot(roomRef, async (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.data();
+
+        // Handle Offer (if remote description is stable/unset)
+        if (data.offer && pc.signalingState === "stable") {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(console.error);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await updateDoc(roomRef, {
+            answer: { type: answer.type, sdp: answer.sdp }
+          }).catch(console.error);
+        }
+
+        // Handle Therapist ICE candidates
+        if (data.therapistCandidates && Array.isArray(data.therapistCandidates)) {
+          for (const cand of data.therapistCandidates) {
+            const candStr = JSON.stringify(cand);
+            if (!candidatesAdded.current.has(candStr)) {
+              candidatesAdded.current.add(candStr);
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+            }
+          }
+        }
+      });
+
+      (pc as any)._unsubscribeFirestore = unsubscribe;
+
+    } catch (err) {
+      console.error("Error setting up WebRTC patient:", err);
+    }
+  };
+
+  const cleanupWebRTCInstance = () => {
+    if (pcRef.current) {
+      if ((pcRef.current as any)._unsubscribeFirestore) {
+        (pcRef.current as any)._unsubscribeFirestore();
+      }
+      try {
+        pcRef.current.close();
+      } catch (e) {}
+      pcRef.current = null;
+    }
+    setIsRemoteConnected(false);
+  };
+
+  const cleanupWebRTC = () => {
+    cleanupWebRTCInstance();
+    setRemoteStream(null);
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+  };
 
   // Format timer seconds to MM:SS
   const formatTime = (seconds: number) => {
@@ -431,7 +575,15 @@ export default function OnlineConsultationSection() {
                  
                  {/* 1. Remote Video Stream / Waiting Room - Full size on desktop, split on mobile */}
                  <div className="flex-1 md:absolute md:inset-0 rounded-2xl bg-gradient-to-tr from-slate-900 to-purple-950/40 border border-slate-800/60 overflow-hidden relative flex flex-col items-center justify-center transition-all shadow-lg">
-                   {therapistIsLive ? (
+                    {therapistIsLive && isRemoteConnected && (
+                      <video
+                        ref={remoteVideoRef}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover absolute inset-0 z-30"
+                      />
+                    )}
+                   {therapistIsLive && !isRemoteConnected ? (
                      /* Simulated professional screen */
                      <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 animate-fade-in p-4">
                        {/* Psychologist mockup avatar */}
@@ -536,8 +688,8 @@ export default function OnlineConsultationSection() {
                    )}
  
                    {/* Status overlay badge */}
-                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] text-slate-200 font-bold backdrop-blur-sm tracking-wider uppercase z-10">
-                     {therapistIsLive ? "🔴 PSICÓLOGA" : "⏱️ AGUARDANDO"}
+                   <div className="absolute bottom-3 left-3 bg-slate-900/85 border border-slate-800 px-2.5 py-1 rounded-xl text-[10px] text-slate-200 font-bold backdrop-blur-sm tracking-wider uppercase z-40">
+                     {therapistIsLive ? (isRemoteConnected ? "🔴 PSICÓLOGA (AO VIVO)" : "🔴 PSICÓLOGA") : "⏱️ AGUARDANDO"}
                    </div>
                  </div>
  
