@@ -10,17 +10,11 @@
 html, body, #root {
   background-color: #FCFDFD;
   color: #1e293b; /* slate-800 */
-  height: 100%;
-  overflow: hidden;
-  touch-action: manipulation;
+  min-height: 100%;
 }
 
 #app-root {
-  overflow-y: auto !important;
-  height: 100vh !important;
   min-height: 100vh;
-  -webkit-overflow-scrolling: touch;
-  touch-action: manipulation;
 }
 
 /* Animations for seamless transitions */

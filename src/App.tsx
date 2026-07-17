@@ -327,7 +327,7 @@ export default function App() {
         </main>
 
         {/* Global Footer with Developer Credits */}
-        <footer className="border-t border-slate-100 bg-[#FCFDFD] py-6" id="app-footer">
+        <footer className="border-t border-slate-100 bg-[#FCFDFD] py-6 pb-12 sm:pb-6" id="app-footer">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
             <p className="font-sans text-xs text-slate-400">
               © {new Date().getFullYear()} {clinicInfo.therapistName}. Todos os direitos reservados.
