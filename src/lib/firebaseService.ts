@@ -213,6 +213,7 @@ export async function deleteBookingFromDb(id: string): Promise<void> {
       const filtered = currentList.filter(b => b.id !== id);
       localStorage.setItem("serenamente_bookings", JSON.stringify(filtered));
     }
+    throw error;
   }
 }
 

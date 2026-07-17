@@ -213,12 +213,10 @@ export default function BookingSection({ setActiveTab, bookings: propBookings, c
   const handleCancelBooking = (id: string) => {
     if (confirm("Deseja realmente cancelar esta solicitação de consulta?")) {
       deleteBookingFromDb(id).then(() => {
-        const updated = bookings.filter((b) => b.id !== id);
-        setBookings(updated);
+        setBookings((prev) => prev.filter((b) => b.id !== id));
       }).catch((err) => {
         console.error("Erro ao remover agendamento do Firestore:", err);
-        const updated = bookings.filter((b) => b.id !== id);
-        setBookings(updated);
+        alert("Erro ao cancelar o agendamento no servidor. Por favor, tente novamente.");
       });
     }
   };

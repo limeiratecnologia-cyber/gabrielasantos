@@ -9,9 +9,10 @@ interface HomeSectionProps {
   setActiveTab: (tab: ActiveTab) => void;
   logoSrc?: string;
   clinicInfo?: any;
+  onTriggerHelpPsi?: () => void;
 }
 
-export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propClinicInfo }: HomeSectionProps) {
+export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propClinicInfo, onTriggerHelpPsi }: HomeSectionProps) {
   const [localClinicInfo, setLocalClinicInfo] = useState<any>(() => {
     const saved = localStorage.getItem("serenamente_clinic_info");
     if (saved) {
@@ -132,16 +133,32 @@ export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propCli
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="flex flex-wrap items-center gap-4 pt-2"
+            className="flex flex-col gap-4 pt-2"
           >
-            <button
-              id="hero-cta-btn"
-              onClick={() => setActiveTab("booking")}
-              className="px-8 py-4 bg-purple-600 text-white rounded-full font-bold shadow-lg shadow-purple-600/20 hover:bg-purple-700 hover:shadow-xl transition-all cursor-pointer inline-flex items-center gap-2 group text-sm"
-            >
-              Agendar Consulta
-              <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-            </button>
+            <div className="flex flex-wrap items-center gap-4">
+              <button
+                id="hero-cta-btn"
+                onClick={() => setActiveTab("booking")}
+                className="px-8 py-4 bg-purple-600 text-white rounded-full font-bold shadow-lg shadow-purple-600/20 hover:bg-purple-700 hover:shadow-xl transition-all cursor-pointer inline-flex items-center gap-2 group text-sm"
+              >
+                Agendar Consulta
+                <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+              </button>
+
+              {onTriggerHelpPsi && (
+                <button
+                  id="hero-helppsi-btn"
+                  onClick={onTriggerHelpPsi}
+                  className="px-6 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full font-bold shadow-lg shadow-rose-600/20 hover:shadow-xl transition-all cursor-pointer inline-flex items-center gap-2 text-sm border border-rose-500 overflow-hidden relative"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                  </span>
+                  SOS HelpPsi
+                </button>
+              )}
+            </div>
             
             <div className="flex items-center gap-3 px-2">
               <div className="flex -space-x-2">

@@ -214,9 +214,16 @@ export default function App() {
   }, [clinicInfo, pngLogo]);
 
   const renderActiveSection = () => {
+    const handleTriggerHelpPsi = () => {
+      setHelpSuccess(false);
+      setHelpName("");
+      setHelpWhatsapp("");
+      setShowHelpPsiModal(true);
+    };
+
     switch (displayedTab) {
       case "home":
-        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
+        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} onTriggerHelpPsi={handleTriggerHelpPsi} />;
       case "approaches":
         return <ApproachesSection />;
       case "booking":
@@ -226,7 +233,7 @@ export default function App() {
       case "admin":
         return <AdminSection setActiveTab={setActiveTab} bookings={bookings} clinicInfo={clinicInfo} />;
       default:
-        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
+        return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} onTriggerHelpPsi={handleTriggerHelpPsi} />;
     }
   };
 
@@ -318,27 +325,6 @@ export default function App() {
             {renderActiveSection()}
           </div>
         </main>
-
-        {/* Floating SOS HelpPsi Button */}
-        <div className="fixed bottom-6 right-6 z-40 animate-fade-in">
-          <button
-            id="btn-trigger-helppsi"
-            onClick={() => {
-              setHelpSuccess(false);
-              setHelpName("");
-              setHelpWhatsapp("");
-              setShowHelpPsiModal(true);
-            }}
-            className="relative group bg-rose-600 hover:bg-rose-700 hover:scale-105 active:scale-95 text-white font-sans font-black text-xs sm:text-sm px-5 py-3.5 rounded-full shadow-2xl shadow-rose-600/30 flex items-center gap-2 transition-all duration-300 cursor-pointer border border-rose-500 overflow-hidden"
-          >
-            <span className="absolute inset-0 w-full h-full bg-white/10 animate-pulse" />
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-            </span>
-            <span>SOS HelpPsi</span>
-          </button>
-        </div>
 
         {/* HelpPsi Emergency Modal Overlay */}
         {showHelpPsiModal && (

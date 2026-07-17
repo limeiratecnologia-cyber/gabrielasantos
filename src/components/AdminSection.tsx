@@ -418,9 +418,14 @@ function AdminAgendaTab({
 
   const handleDeleteBooking = (id: string) => {
     if (confirm("Tem certeza de que deseja apagar permanentemente este registro de agendamento?")) {
-      deleteBookingFromDb(id).catch((err) => {
-        console.error("Erro ao excluir agendamento do Firestore:", err);
-      });
+      deleteBookingFromDb(id)
+        .then(() => {
+          setBookings((prev) => prev.filter((b) => b.id !== id));
+        })
+        .catch((err) => {
+          console.error("Erro ao excluir agendamento do Firestore:", err);
+          alert("Erro ao apagar o agendamento no servidor. Por favor, tente novamente.");
+        });
     }
   };
 
