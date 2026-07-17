@@ -45,7 +45,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
   // Chat synchronized with Firestore
   const [messages, setMessages] = useState<Array<{ sender: "user" | "therapist", text: string, time: string, timestamp: number }>>([]);
   const [inputText, setInputText] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Clinical evolution state for quick-saving during session
   const [sessionNotes, setSessionNotes] = useState("");
@@ -376,9 +376,11 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
     return () => unsubscribe();
   }, [isLive, roomCode]);
 
-  // Auto-scrolling chat
+  // Auto-scrolling chat - scrolls only the inner container, preventing window scroll on mobile devices
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   const handleSelectPatient = (pId: string) => {
@@ -859,7 +861,7 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                 {activeTab === "chat" ? (
                   <>
                     {/* Chat Messages */}
-                    <div className="flex-1 space-y-4 pr-1 overflow-y-auto min-h-0">
+                    <div ref={chatContainerRef} className="flex-1 space-y-4 pr-1 overflow-y-auto min-h-0">
                       {messages.length === 0 ? (
                         <div className="text-center py-12 text-slate-500 text-xs space-y-1">
                           <p>Nenhuma mensagem enviada ainda.</p>
@@ -888,7 +890,6 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
                           </div>
                         ))
                       )}
-                      <div ref={messagesEndRef} />
                     </div>
 
                     {/* Chat Send */}

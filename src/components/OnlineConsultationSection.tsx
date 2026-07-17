@@ -64,11 +64,13 @@ export default function OnlineConsultationSection() {
     { sender: "therapist", text: "Olá! Seja muito bem-vindo(a) à nossa sala de teleconsulta protegida. Como você está se sentindo hoje?", time: "00:01" }
   ]);
   const [inputText, setInputText] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scrolling chat
+  // Auto-scrolling chat - scrolls only the inner container, preventing window scroll on mobile devices
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   // Firestore Room Real-time Listener
@@ -894,7 +896,7 @@ export default function OnlineConsultationSection() {
                 {activeSidebar === "chat" ? (
                   <>
                     {/* Chat log list */}
-                    <div className="flex-1 space-y-4 pr-1 overflow-y-auto min-h-0">
+                    <div ref={chatContainerRef} className="flex-1 space-y-4 pr-1 overflow-y-auto min-h-0">
                       {messages.map((m, idx) => (
                         <div
                           key={idx}
@@ -916,7 +918,6 @@ export default function OnlineConsultationSection() {
                           </div>
                         </div>
                       ))}
-                      <div ref={messagesEndRef} />
                     </div>
 
                     {/* Chat send action */}
