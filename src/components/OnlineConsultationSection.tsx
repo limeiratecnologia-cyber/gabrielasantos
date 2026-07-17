@@ -289,12 +289,16 @@ export default function OnlineConsultationSection() {
             .catch(err => console.error("[WebRTC Patient ERROR] Falha ao setar RemoteDescription (Offer):", err));
           
           const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
           
-          console.log("[WebRTC Patient] Enviando answer do paciente ao Firestore...");
+          console.log("[WebRTC Patient] Enviando answer do paciente ao Firestore primeiro...");
           await updateDoc(roomRef, {
             answer: { type: answer.type, sdp: answer.sdp }
           }).catch(err => console.error("[WebRTC Patient ERROR] Falha ao enviar Answer ao Firestore:", err));
+
+          // Set local description AFTER the Answer is written, ensuring any background generated candidate
+          // succeeds in finding the room session document (which already has the Answer ready)
+          await pc.setLocalDescription(answer);
+          console.log("[WebRTC Patient] Local Description (Answer) setada com sucesso.");
 
           // Post-SDP Catch-up: Immediately process any therapist candidates that arrived before SDP negotiation
           if (data.therapistCandidates && Array.isArray(data.therapistCandidates)) {

@@ -239,30 +239,27 @@ export default function AdminOnlineTab({ preselectedRoom, onClearPreselectedRoom
 
       // Create Offer
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
 
-      console.log(`[WebRTC Therapist] Local Description (Offer) criada e setada. Salvando no Firestore sob código da sala: ${roomCode}`);
+      console.log(`[WebRTC Therapist] Criando/atualizando sala no Firestore com a Offer sob código da sala: ${roomCode}`);
 
       const roomRef = doc(db, "room_sessions", roomCode);
-      await updateDoc(roomRef, {
+      // Initialize candidates to empty arrays and save offer FIRST to avoid race conditions with candidate gathering
+      await setDoc(roomRef, {
+        roomCode,
         offer: { type: offer.type, sdp: offer.sdp },
         answer: null,
         therapistCandidates: [],
         patientCandidates: [],
         therapistIsLive: true,
         lastUpdated: Date.now()
-      }).catch(async (err) => {
-        console.warn("[WebRTC Therapist] updateDoc falhou (documento pode não existir), tentando setDoc com merge: true. Erro original:", err);
-        // Document might not exist yet, fallback to setDoc
-        await setDoc(roomRef, {
-          roomCode,
-          offer: { type: offer.type, sdp: offer.sdp },
-          therapistIsLive: true,
-          therapistCandidates: [],
-          patientCandidates: [],
-          lastUpdated: Date.now()
-        }, { merge: true });
+      }, { merge: true }).catch((err) => {
+        console.error("[WebRTC Therapist ERROR] Falha ao criar/atualizar documento da sala com a Offer:", err);
       });
+
+      // Now set local description. This starts background candidate gathering.
+      // Any candidate generated from now on will successfully update the existing Firestore document.
+      await pc.setLocalDescription(offer);
+      console.log(`[WebRTC Therapist] Local Description (Offer) setada com sucesso.`);
 
       // Subscribe to real-time Answer & Patient ICE candidate changes
       const unsubscribe = onSnapshot(roomRef, async (snapshot) => {

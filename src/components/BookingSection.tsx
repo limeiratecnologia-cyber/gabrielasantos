@@ -3,13 +3,17 @@ import { Booking, Patient, ActiveTab } from "../types";
 import { APPROACHES, CLINIC_INFO } from "../data";
 import { Calendar, Clock, User, Phone, Mail, FileText, CheckCircle, Trash2, ShieldCheck, Heart, ArrowRight, ChevronLeft, ChevronRight, Lock, Video, Copy, ClipboardCheck, MapPin } from "lucide-react";
 import { getBookingsFromDb, saveBookingToDb, deleteBookingFromDb, getApproachesFromDb, savePatientToDb, getClinicInfoFromDb } from "../lib/firebaseService";
+import { db } from "../lib/firebase";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 
 interface BookingSectionProps {
   setActiveTab?: (tab: ActiveTab) => void;
+  bookings?: Booking[];
+  clinicInfo?: any;
 }
 
-export default function BookingSection({ setActiveTab }: BookingSectionProps) {
-  const [bookings, setBookings] = useState<Booking[]>([]);
+export default function BookingSection({ setActiveTab, bookings: propBookings, clinicInfo: propClinicInfo }: BookingSectionProps) {
+  const [bookings, setBookings] = useState<Booking[]>(propBookings || []);
   const [step, setStep] = useState(1);
   const [lastBooking, setLastBooking] = useState<Booking | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -25,7 +29,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [notes, setNotes] = useState("");
-  const [clinicInfo, setClinicInfo] = useState<any>(null);
+  const [clinicInfo, setClinicInfo] = useState<any>(propClinicInfo || null);
 
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -35,6 +39,10 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
   useEffect(() => {
+    if (propClinicInfo) {
+      setClinicInfo(propClinicInfo);
+      return;
+    }
     getClinicInfoFromDb().then((info) => {
       setClinicInfo(info);
     }).catch((err) => {
@@ -50,7 +58,7 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
         setClinicInfo(CLINIC_INFO);
       }
     });
-  }, []);
+  }, [propClinicInfo]);
 
   // Load approaches from Firestore
   useEffect(() => {
@@ -89,22 +97,30 @@ export default function BookingSection({ setActiveTab }: BookingSectionProps) {
     "18:00 - 19:00"
   ];
 
-  // Load bookings from Firestore on mount
+  // Load bookings from Firestore in real-time
   useEffect(() => {
-    getBookingsFromDb().then((list) => {
-      setBookings(list);
-    }).catch((err) => {
-      console.error("Erro ao carregar agendamentos do Firestore:", err);
-      const saved = localStorage.getItem("serenamente_bookings");
-      if (saved) {
-        try {
-          setBookings(JSON.parse(saved));
-        } catch (e) {
-          console.error(e);
-        }
-      }
+    if (propBookings) {
+      setBookings(propBookings);
+      return;
+    }
+    const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
+    const unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
+      const bList: Booking[] = [];
+      snapshot.forEach((doc) => {
+        bList.push({ id: doc.id, ...doc.data() } as Booking);
+      });
+      setBookings(bList);
+      localStorage.setItem("serenamente_bookings", JSON.stringify(bList));
+    }, (err) => {
+      console.error("Erro no onSnapshot de agendamentos:", err);
+      // Fallback
+      getBookingsFromDb().then((list) => {
+        setBookings(list);
+      }).catch(console.error);
     });
-  }, []);
+
+    return () => unsubscribeBookings();
+  }, [propBookings]);
 
   const saveBookings = async (newBookings: Booking[]) => {
     setBookings(newBookings);

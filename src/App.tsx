@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { ActiveTab } from "./types";
+import { ActiveTab, Booking } from "./types";
 import AestheticHeader from "./components/AestheticHeader";
 import HomeSection from "./components/HomeSection";
 import ApproachesSection from "./components/ApproachesSection";
@@ -14,6 +14,8 @@ import AdminSection from "./components/AdminSection";
 import { CLINIC_INFO, IMAGES } from "./data";
 import { getClinicInfoFromDb, saveHelpPsiEmergencyToDb } from "./lib/firebaseService";
 import { Phone, ShieldAlert, X, MessageSquare, Check, AlertCircle, Heart } from "lucide-react";
+import { db } from "./lib/firebase";
+import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
@@ -28,6 +30,17 @@ export default function App() {
       }
     }
     return CLINIC_INFO;
+  });
+  const [bookings, setBookings] = useState<Booking[]>(() => {
+    const saved = localStorage.getItem("serenamente_bookings");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Erro ao ler serenamente_bookings no mount:", e);
+      }
+    }
+    return [];
   });
   const [pngLogo, setPngLogo] = useState<string>("");
   const [isSplashLoading, setIsSplashLoading] = useState(true);
@@ -116,15 +129,27 @@ export default function App() {
     }
   }, [isSplashLoading, isTransitionLoading]);
 
-  // Sync clinicInfo with Firestore DB
+  // Sync clinicInfo with Firestore DB in real-time
   useEffect(() => {
-    getClinicInfoFromDb().then((info) => {
-      if (info) {
+    console.log("[App] Inicializando listener em tempo real para clinic_info/main...");
+    const docRef = doc(db, "clinic_info", "main");
+    const unsubscribeClinic = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const info = docSnap.data();
+        console.log("[App] Informações clínicas sincronizadas em tempo real:", info);
         setClinicInfo(info);
         localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
+      } else {
+        console.log("[App] Documento clinic_info/main não existe, semeando valores padrão...");
+        getClinicInfoFromDb().then((info) => {
+          if (info) {
+            setClinicInfo(info);
+            localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
+          }
+        }).catch((err) => console.error("[App ERROR] Falha ao semear clinic_info:", err));
       }
-    }).catch((err) => {
-      console.error("Erro ao carregar clinicInfo do Firestore:", err);
+    }, (err) => {
+      console.error("[App ERROR] Erro no real-time listener de clinic_info, usando fallback local:", err);
       const saved = localStorage.getItem("serenamente_clinic_info");
       if (saved) {
         try {
@@ -134,7 +159,28 @@ export default function App() {
         }
       }
     });
-  }, [activeTab]);
+
+    // Sync bookings in real-time
+    console.log("[App] Inicializando listener em tempo real para bookings...");
+    const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
+    const unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
+      console.log(`[App] Agendamentos atualizados em tempo real. Total: ${snapshot.size}`);
+      const bList: Booking[] = [];
+      snapshot.forEach((doc) => {
+        bList.push({ id: doc.id, ...doc.data() } as Booking);
+      });
+      setBookings(bList);
+      localStorage.setItem("serenamente_bookings", JSON.stringify(bList));
+    }, (err) => {
+      console.error("[App ERROR] Erro no real-time listener de bookings, usando fallback local:", err);
+    });
+
+    return () => {
+      console.log("[App] Removendo listeners em tempo real do App.tsx");
+      unsubscribeClinic();
+      unsubscribeBookings();
+    };
+  }, []);
 
   // Convert raw logo to a high-quality crisp PNG dynamically
   useEffect(() => {
@@ -174,11 +220,11 @@ export default function App() {
       case "approaches":
         return <ApproachesSection />;
       case "booking":
-        return <BookingSection setActiveTab={setActiveTab} />;
+        return <BookingSection setActiveTab={setActiveTab} bookings={bookings} clinicInfo={clinicInfo} />;
       case "online":
         return <OnlineConsultationSection />;
       case "admin":
-        return <AdminSection setActiveTab={setActiveTab} />;
+        return <AdminSection setActiveTab={setActiveTab} bookings={bookings} clinicInfo={clinicInfo} />;
       default:
         return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
     }

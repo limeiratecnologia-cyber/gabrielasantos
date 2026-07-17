@@ -12,20 +12,112 @@ import {
 import { Booking, Approach, Patient, ClinicalEvolution, HelpPsiEmergency, PlannedSession } from "../types";
 import { CLINIC_INFO, APPROACHES } from "../data";
 
+// ==========================================================================
+// DB OPERATION DIAGNOSTICS & TELEMETRY
+// ==========================================================================
+export interface DiagnosticLog {
+  timestamp: string;
+  operation: string;
+  status: "success" | "error";
+  details?: any;
+  error?: string;
+  env: {
+    userAgent: string;
+    isOnline: boolean;
+    localStorageAvailable: boolean;
+    platform: string;
+  };
+}
+
+const MAX_DIAGNOSTIC_LOGS = 100;
+
+function logDbOperation(operation: string, status: "success" | "error", details?: any, err?: any) {
+  const envInfo = {
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "Unknown",
+    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+    localStorageAvailable: (() => {
+      try {
+        if (typeof localStorage === "undefined") return false;
+        localStorage.setItem("__db_test__", "1");
+        localStorage.removeItem("__db_test__");
+        return true;
+      } catch (e) {
+        return false;
+      }
+    })(),
+    platform: typeof navigator !== "undefined" ? (navigator.platform || "") : "Unknown"
+  };
+
+  const logEntry: DiagnosticLog = {
+    timestamp: new Date().toISOString(),
+    operation,
+    status,
+    details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+    error: err ? (err.message || String(err)) : undefined,
+    env: envInfo
+  };
+
+  // Colorful logs to console for browser & mobile remote debugging
+  const color = status === "success" ? "#10B981" : "#EF4444";
+  console.log(
+    `%c[Firestore DB] %c${operation} -> ${status.toUpperCase()}`,
+    `color: ${color}; font-weight: bold; font-size: 11px;`,
+    "color: inherit;",
+    { details, error: err, env: envInfo }
+  );
+
+  try {
+    if (typeof localStorage !== "undefined") {
+      const existing = localStorage.getItem("serenamente_db_logs");
+      const logs: DiagnosticLog[] = existing ? JSON.parse(existing) : [];
+      logs.unshift(logEntry);
+      if (logs.length > MAX_DIAGNOSTIC_LOGS) {
+        logs.pop();
+      }
+      localStorage.setItem("serenamente_db_logs", JSON.stringify(logs));
+    }
+  } catch (e) {
+    console.warn("[Firestore DB] Cache save for logs failed:", e);
+  }
+}
+
+export function getDbDiagnosticLogs(): DiagnosticLog[] {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const existing = localStorage.getItem("serenamente_db_logs");
+      return existing ? JSON.parse(existing) : [];
+    }
+  } catch (e) {}
+  return [];
+}
+
+export function clearDbDiagnosticLogs(): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("serenamente_db_logs");
+    }
+  } catch (e) {}
+}
+
+// ==========================================================================
 // Clinic Info Helpers
+// ==========================================================================
 export async function getClinicInfoFromDb(): Promise<any> {
   try {
     const docRef = doc(db, "clinic_info", "main");
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data();
+      const data = docSnap.data();
+      logDbOperation("getClinicInfoFromDb", "success", { source: "firestore", data });
+      return data;
     } else {
       // Seed initial clinic info to database
       await setDoc(docRef, CLINIC_INFO);
+      logDbOperation("getClinicInfoFromDb", "success", { source: "firestore-seeded", data: CLINIC_INFO });
       return CLINIC_INFO;
     }
   } catch (error) {
-    console.error("Error fetching clinic info from Firestore:", error);
+    logDbOperation("getClinicInfoFromDb", "error", null, error);
     // Fallback to localStorage or default static info
     const saved = localStorage.getItem("serenamente_clinic_info");
     return saved ? JSON.parse(saved) : CLINIC_INFO;
@@ -36,16 +128,19 @@ export async function saveClinicInfoToDb(info: any): Promise<void> {
   try {
     const docRef = doc(db, "clinic_info", "main");
     await setDoc(docRef, info, { merge: true });
+    logDbOperation("saveClinicInfoToDb", "success", { info });
     // Also update local cache
     localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
   } catch (error) {
-    console.error("Error saving clinic info to Firestore:", error);
+    logDbOperation("saveClinicInfoToDb", "error", { info }, error);
     // Fallback save to localStorage
     localStorage.setItem("serenamente_clinic_info", JSON.stringify(info));
   }
 }
 
+// ==========================================================================
 // Booking Helpers
+// ==========================================================================
 export async function getBookingsFromDb(): Promise<Booking[]> {
   try {
     const q = query(collection(db, "bookings"), orderBy("date", "asc"));
@@ -55,10 +150,11 @@ export async function getBookingsFromDb(): Promise<Booking[]> {
       firestoreBookings.push({ id: doc.id, ...doc.data() } as Booking);
     });
 
+    logDbOperation("getBookingsFromDb", "success", { count: firestoreBookings.length });
     localStorage.setItem("serenamente_bookings", JSON.stringify(firestoreBookings));
     return firestoreBookings;
   } catch (error) {
-    console.error("Error fetching bookings from Firestore:", error);
+    logDbOperation("getBookingsFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_bookings");
     return saved ? JSON.parse(saved) : [];
   }
@@ -68,6 +164,7 @@ export async function saveBookingToDb(booking: Booking): Promise<void> {
   try {
     const docRef = doc(db, "bookings", booking.id);
     await setDoc(docRef, booking);
+    logDbOperation("saveBookingToDb", "success", { bookingId: booking.id, booking });
     
     // Update local cache
     const saved = localStorage.getItem("serenamente_bookings");
@@ -80,7 +177,7 @@ export async function saveBookingToDb(booking: Booking): Promise<void> {
     }
     localStorage.setItem("serenamente_bookings", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving booking to Firestore:", error);
+    logDbOperation("saveBookingToDb", "error", { bookingId: booking.id, booking }, error);
     // Save locally
     const saved = localStorage.getItem("serenamente_bookings");
     const currentList: Booking[] = saved ? JSON.parse(saved) : [];
@@ -98,6 +195,7 @@ export async function deleteBookingFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "bookings", id);
     await deleteDoc(docRef);
+    logDbOperation("deleteBookingFromDb", "success", { id });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_bookings");
@@ -107,7 +205,7 @@ export async function deleteBookingFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_bookings", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting booking from Firestore:", error);
+    logDbOperation("deleteBookingFromDb", "error", { id }, error);
     // Update local cache
     const saved = localStorage.getItem("serenamente_bookings");
     if (saved) {
@@ -118,7 +216,9 @@ export async function deleteBookingFromDb(id: string): Promise<void> {
   }
 }
 
+// ==========================================================================
 // Therapeutic Approaches Helpers
+// ==========================================================================
 export async function getApproachesFromDb(): Promise<Approach[]> {
   try {
     const querySnapshot = await getDocs(collection(db, "approaches"));
@@ -128,8 +228,7 @@ export async function getApproachesFromDb(): Promise<Approach[]> {
     });
 
     if (approaches.length > 0) {
-      // Sort to preserve default array ordering if needed
-      // Also update local cache
+      logDbOperation("getApproachesFromDb", "success", { count: approaches.length });
       localStorage.setItem("serenamente_approaches", JSON.stringify(approaches));
       return approaches;
     } else {
@@ -138,11 +237,12 @@ export async function getApproachesFromDb(): Promise<Approach[]> {
         const docRef = doc(db, "approaches", app.id);
         await setDoc(docRef, app);
       }
+      logDbOperation("getApproachesFromDb", "success", { source: "seeded", count: APPROACHES.length });
       localStorage.setItem("serenamente_approaches", JSON.stringify(APPROACHES));
       return APPROACHES;
     }
   } catch (error) {
-    console.error("Error fetching approaches from Firestore:", error);
+    logDbOperation("getApproachesFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_approaches");
     return saved ? JSON.parse(saved) : APPROACHES;
   }
@@ -152,6 +252,7 @@ export async function saveApproachToDb(approach: Approach): Promise<void> {
   try {
     const docRef = doc(db, "approaches", approach.id);
     await setDoc(docRef, approach);
+    logDbOperation("saveApproachToDb", "success", { approachId: approach.id, approach });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_approaches");
@@ -164,7 +265,7 @@ export async function saveApproachToDb(approach: Approach): Promise<void> {
     }
     localStorage.setItem("serenamente_approaches", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving approach to Firestore:", error);
+    logDbOperation("saveApproachToDb", "error", { approachId: approach.id, approach }, error);
     // Save locally
     const saved = localStorage.getItem("serenamente_approaches");
     const currentList: Approach[] = saved ? JSON.parse(saved) : [];
@@ -182,6 +283,7 @@ export async function deleteApproachFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "approaches", id);
     await deleteDoc(docRef);
+    logDbOperation("deleteApproachFromDb", "success", { id });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_approaches");
@@ -191,7 +293,7 @@ export async function deleteApproachFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_approaches", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting approach from Firestore:", error);
+    logDbOperation("deleteApproachFromDb", "error", { id }, error);
     // Update local cache
     const saved = localStorage.getItem("serenamente_approaches");
     if (saved) {
@@ -213,10 +315,11 @@ export async function getPatientsFromDb(): Promise<Patient[]> {
       firestorePatients.push({ id: doc.id, ...doc.data() } as Patient);
     });
 
+    logDbOperation("getPatientsFromDb", "success", { count: firestorePatients.length });
     localStorage.setItem("serenamente_patients", JSON.stringify(firestorePatients));
     return firestorePatients;
   } catch (error) {
-    console.error("Error fetching patients from Firestore:", error);
+    logDbOperation("getPatientsFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_patients");
     return saved ? JSON.parse(saved) : [];
   }
@@ -226,6 +329,7 @@ export async function savePatientToDb(patient: Patient): Promise<void> {
   try {
     const docRef = doc(db, "patients", patient.id);
     await setDoc(docRef, patient, { merge: true });
+    logDbOperation("savePatientToDb", "success", { patientId: patient.id, patient });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_patients");
@@ -238,7 +342,7 @@ export async function savePatientToDb(patient: Patient): Promise<void> {
     }
     localStorage.setItem("serenamente_patients", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving patient to Firestore:", error);
+    logDbOperation("savePatientToDb", "error", { patientId: patient.id, patient }, error);
     const saved = localStorage.getItem("serenamente_patients");
     const currentList: Patient[] = saved ? JSON.parse(saved) : [];
     const index = currentList.findIndex(p => p.id === patient.id);
@@ -255,6 +359,7 @@ export async function deletePatientFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "patients", id);
     await deleteDoc(docRef);
+    logDbOperation("deletePatientFromDb", "success", { id });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_patients");
@@ -264,7 +369,7 @@ export async function deletePatientFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_patients", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting patient from Firestore:", error);
+    logDbOperation("deletePatientFromDb", "error", { id }, error);
     const saved = localStorage.getItem("serenamente_patients");
     if (saved) {
       const currentList: Patient[] = JSON.parse(saved);
@@ -285,10 +390,11 @@ export async function getEvolutionsFromDb(): Promise<ClinicalEvolution[]> {
       firestoreEvolutions.push({ id: doc.id, ...doc.data() } as ClinicalEvolution);
     });
 
+    logDbOperation("getEvolutionsFromDb", "success", { count: firestoreEvolutions.length });
     localStorage.setItem("serenamente_evolutions", JSON.stringify(firestoreEvolutions));
     return firestoreEvolutions;
   } catch (error) {
-    console.error("Error fetching evolutions from Firestore:", error);
+    logDbOperation("getEvolutionsFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_evolutions");
     return saved ? JSON.parse(saved) : [];
   }
@@ -298,6 +404,7 @@ export async function saveEvolutionToDb(evolution: ClinicalEvolution): Promise<v
   try {
     const docRef = doc(db, "evolutions", evolution.id);
     await setDoc(docRef, evolution, { merge: true });
+    logDbOperation("saveEvolutionToDb", "success", { evolutionId: evolution.id, evolution });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_evolutions");
@@ -310,7 +417,7 @@ export async function saveEvolutionToDb(evolution: ClinicalEvolution): Promise<v
     }
     localStorage.setItem("serenamente_evolutions", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving evolution to Firestore:", error);
+    logDbOperation("saveEvolutionToDb", "error", { evolutionId: evolution.id, evolution }, error);
     const saved = localStorage.getItem("serenamente_evolutions");
     const currentList: ClinicalEvolution[] = saved ? JSON.parse(saved) : [];
     const index = currentList.findIndex(e => e.id === evolution.id);
@@ -327,6 +434,7 @@ export async function deleteEvolutionFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "evolutions", id);
     await deleteDoc(docRef);
+    logDbOperation("deleteEvolutionFromDb", "success", { id });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_evolutions");
@@ -336,7 +444,7 @@ export async function deleteEvolutionFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_evolutions", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting evolution from Firestore:", error);
+    logDbOperation("deleteEvolutionFromDb", "error", { id }, error);
     const saved = localStorage.getItem("serenamente_evolutions");
     if (saved) {
       const currentList: ClinicalEvolution[] = JSON.parse(saved);
@@ -358,10 +466,11 @@ export async function getHelpPsiEmergenciesFromDb(): Promise<HelpPsiEmergency[]>
     });
 
     firestoreEmergencies.sort((a, b) => b.timestamp - a.timestamp);
+    logDbOperation("getHelpPsiEmergenciesFromDb", "success", { count: firestoreEmergencies.length });
     localStorage.setItem("serenamente_helppsi", JSON.stringify(firestoreEmergencies));
     return firestoreEmergencies;
   } catch (error) {
-    console.error("Error fetching HelpPsi emergencies:", error);
+    logDbOperation("getHelpPsiEmergenciesFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_helppsi");
     return saved ? JSON.parse(saved) : [];
   }
@@ -371,6 +480,7 @@ export async function saveHelpPsiEmergencyToDb(emergency: HelpPsiEmergency): Pro
   try {
     const docRef = doc(db, "helppsi_emergencies", emergency.id);
     await setDoc(docRef, emergency, { merge: true });
+    logDbOperation("saveHelpPsiEmergencyToDb", "success", { emergencyId: emergency.id, emergency });
 
     // Cache locally
     const saved = localStorage.getItem("serenamente_helppsi");
@@ -384,7 +494,7 @@ export async function saveHelpPsiEmergencyToDb(emergency: HelpPsiEmergency): Pro
     currentList.sort((a, b) => b.timestamp - a.timestamp);
     localStorage.setItem("serenamente_helppsi", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving HelpPsi emergency:", error);
+    logDbOperation("saveHelpPsiEmergencyToDb", "error", { emergencyId: emergency.id, emergency }, error);
     const saved = localStorage.getItem("serenamente_helppsi");
     const currentList: HelpPsiEmergency[] = saved ? JSON.parse(saved) : [];
     const index = currentList.findIndex(e => e.id === emergency.id);
@@ -402,6 +512,7 @@ export async function deleteHelpPsiEmergencyFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "helppsi_emergencies", id);
     await deleteDoc(docRef);
+    logDbOperation("deleteHelpPsiEmergencyFromDb", "success", { id });
 
     // Cache update
     const saved = localStorage.getItem("serenamente_helppsi");
@@ -411,7 +522,7 @@ export async function deleteHelpPsiEmergencyFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_helppsi", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting HelpPsi emergency:", error);
+    logDbOperation("deleteHelpPsiEmergencyFromDb", "error", { id }, error);
     const saved = localStorage.getItem("serenamente_helppsi");
     if (saved) {
       const currentList: HelpPsiEmergency[] = JSON.parse(saved);
@@ -432,10 +543,11 @@ export async function getPlannedSessionsFromDb(): Promise<PlannedSession[]> {
       firestoreSessions.push({ id: doc.id, ...doc.data() } as PlannedSession);
     });
 
+    logDbOperation("getPlannedSessionsFromDb", "success", { count: firestoreSessions.length });
     localStorage.setItem("serenamente_planned_sessions", JSON.stringify(firestoreSessions));
     return firestoreSessions;
   } catch (error) {
-    console.error("Error fetching planned sessions:", error);
+    logDbOperation("getPlannedSessionsFromDb", "error", null, error);
     const saved = localStorage.getItem("serenamente_planned_sessions");
     return saved ? JSON.parse(saved) : [];
   }
@@ -445,6 +557,7 @@ export async function savePlannedSessionToDb(session: PlannedSession): Promise<v
   try {
     const docRef = doc(db, "planned_sessions", session.id);
     await setDoc(docRef, session, { merge: true });
+    logDbOperation("savePlannedSessionToDb", "success", { sessionId: session.id, session });
 
     // Update local cache
     const saved = localStorage.getItem("serenamente_planned_sessions");
@@ -457,7 +570,7 @@ export async function savePlannedSessionToDb(session: PlannedSession): Promise<v
     }
     localStorage.setItem("serenamente_planned_sessions", JSON.stringify(currentList));
   } catch (error) {
-    console.error("Error saving planned session:", error);
+    logDbOperation("savePlannedSessionToDb", "error", { sessionId: session.id, session }, error);
     const saved = localStorage.getItem("serenamente_planned_sessions");
     const currentList: PlannedSession[] = saved ? JSON.parse(saved) : [];
     const index = currentList.findIndex(s => s.id === session.id);
@@ -474,6 +587,7 @@ export async function deletePlannedSessionFromDb(id: string): Promise<void> {
   try {
     const docRef = doc(db, "planned_sessions", id);
     await deleteDoc(docRef);
+    logDbOperation("deletePlannedSessionFromDb", "success", { id });
 
     // Cache update
     const saved = localStorage.getItem("serenamente_planned_sessions");
@@ -483,7 +597,7 @@ export async function deletePlannedSessionFromDb(id: string): Promise<void> {
       localStorage.setItem("serenamente_planned_sessions", JSON.stringify(filtered));
     }
   } catch (error) {
-    console.error("Error deleting planned session:", error);
+    logDbOperation("deletePlannedSessionFromDb", "error", { id }, error);
     const saved = localStorage.getItem("serenamente_planned_sessions");
     if (saved) {
       const currentList: PlannedSession[] = JSON.parse(saved);
@@ -492,4 +606,3 @@ export async function deletePlannedSessionFromDb(id: string): Promise<void> {
     }
   }
 }
-

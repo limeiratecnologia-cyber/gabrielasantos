@@ -34,10 +34,12 @@ import {
 } from "lucide-react";
 
 interface AdminSectionProps {
- setActiveTab?: (tab: ActiveTab) => void;
+  setActiveTab?: (tab: ActiveTab) => void;
+  bookings?: Booking[];
+  clinicInfo?: any;
 }
 
-export default function AdminSection({ setActiveTab }: AdminSectionProps) {
+export default function AdminSection({ setActiveTab, bookings, clinicInfo }: AdminSectionProps) {
   const [password, setPassword] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -249,6 +251,8 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
               setPreselectedRoom({ roomCode, clientName });
               setAdminTab("online");
             }}
+            bookings={bookings}
+            clinicInfo={clinicInfo}
           />
         )}
         {adminTab === "patients" && (
@@ -265,7 +269,7 @@ export default function AdminSection({ setActiveTab }: AdminSectionProps) {
             onClearPreselectedRoom={() => setPreselectedRoom(null)}
           />
         )}
-        {adminTab === "website" && <AdminWebsiteTab />}
+        {adminTab === "website" && <AdminWebsiteTab clinicInfo={clinicInfo} />}
         {adminTab === "approaches" && <AdminApproachesTab />}
         {adminTab === "helppsi" && <AdminHelpPsiTab />}
       </div>
@@ -280,10 +284,18 @@ interface AdminAgendaTabProps {
   preselectedPatient?: Patient | null;
   onClearPreselectedPatient?: () => void;
   onSelectLiveRoom?: (roomCode: string, clientName: string) => void;
+  bookings?: Booking[];
+  clinicInfo?: any;
 }
 
-function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelectLiveRoom }: AdminAgendaTabProps) {
-  const [bookings, setBookings] = useState<Booking[]>([]);
+function AdminAgendaTab({ 
+  preselectedPatient, 
+  onClearPreselectedPatient, 
+  onSelectLiveRoom,
+  bookings: propBookings,
+  clinicInfo: propClinicInfo
+}: AdminAgendaTabProps) {
+  const [bookings, setBookings] = useState<Booking[]>(propBookings || []);
   const [filter, setFilter] = useState<"all" | "scheduled" | "completed" | "cancelled">("all");
   
   // Manual booking form state
@@ -301,7 +313,7 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
   // Registered patients selection state
   const [registeredPatients, setRegisteredPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState("");
-  const [clinicInfo, setClinicInfo] = useState<any>(null);
+  const [clinicInfo, setClinicInfo] = useState<any>(propClinicInfo || null);
 
   // General Calendar States
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
@@ -318,20 +330,26 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
   ];
 
   useEffect(() => {
-    // Real-time listener for bookings
-    const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
-    const unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
-      console.log(`[Firestore] Bookings atualizados em tempo real. Documentos: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
-      const list: Booking[] = [];
-      snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as Booking);
+    let unsubscribeBookings = () => {};
+    
+    if (propBookings) {
+      setBookings(propBookings);
+    } else {
+      // Real-time listener for bookings
+      const bookingsQuery = query(collection(db, "bookings"), orderBy("date", "asc"));
+      unsubscribeBookings = onSnapshot(bookingsQuery, (snapshot) => {
+        console.log(`[Firestore] Bookings atualizados em tempo real. Documentos: ${snapshot.size}. Origem: ${snapshot.metadata.fromCache ? 'CACHE LOCAL' : 'SERVIDOR'} (Sincronizado across devices)`);
+        const list: Booking[] = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() } as Booking);
+        });
+        setBookings(list);
+        localStorage.setItem("serenamente_bookings", JSON.stringify(list));
+      }, (err) => {
+        console.error("[Firestore ERROR] Falha na subscrição em tempo real de bookings:", err);
+        getBookingsFromDb().then(setBookings).catch(console.error);
       });
-      setBookings(list);
-      localStorage.setItem("serenamente_bookings", JSON.stringify(list));
-    }, (err) => {
-      console.error("[Firestore ERROR] Falha na subscrição em tempo real de bookings:", err);
-      getBookingsFromDb().then(setBookings).catch(console.error);
-    });
+    }
 
     // Real-time listener for registered patients
     const patientsQuery = query(collection(db, "patients"), orderBy("name", "asc"));
@@ -348,27 +366,31 @@ function AdminAgendaTab({ preselectedPatient, onClearPreselectedPatient, onSelec
       getPatientsFromDb().then(setRegisteredPatients).catch(console.error);
     });
 
-    getClinicInfoFromDb().then((info) => {
-      setClinicInfo(info);
-    }).catch((err) => {
-      console.error("Erro ao carregar informações da clínica:", err);
-      const saved = localStorage.getItem("serenamente_clinic_info");
-      if (saved) {
-        try {
-          setClinicInfo(JSON.parse(saved));
-        } catch (e) {
+    if (propClinicInfo) {
+      setClinicInfo(propClinicInfo);
+    } else {
+      getClinicInfoFromDb().then((info) => {
+        setClinicInfo(info);
+      }).catch((err) => {
+        console.error("Erro ao carregar informações da clínica:", err);
+        const saved = localStorage.getItem("serenamente_clinic_info");
+        if (saved) {
+          try {
+            setClinicInfo(JSON.parse(saved));
+          } catch (e) {
+            setClinicInfo(CLINIC_INFO);
+          }
+        } else {
           setClinicInfo(CLINIC_INFO);
         }
-      } else {
-        setClinicInfo(CLINIC_INFO);
-      }
-    });
+      });
+    }
 
     return () => {
       unsubscribeBookings();
       unsubscribePatients();
     };
-  }, []);
+  }, [propBookings, propClinicInfo]);
 
   useEffect(() => {
     if (preselectedPatient) {
@@ -2309,8 +2331,12 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
 /* ==========================================================================
    SUB-COMPONENT: ADMIN WEBSITE TAB
    ========================================================================== */
-function AdminWebsiteTab() {
-  const [info, setInfo] = useState<any>(null);
+interface AdminWebsiteTabProps {
+  clinicInfo?: any;
+}
+
+function AdminWebsiteTab({ clinicInfo: propClinicInfo }: AdminWebsiteTabProps) {
+  const [info, setInfo] = useState<any>(propClinicInfo || null);
   const [credentialsText, setCredentialsText] = useState("");
   const [newCred, setNewCred] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -2361,6 +2387,10 @@ function AdminWebsiteTab() {
   };
 
   useEffect(() => {
+    if (propClinicInfo) {
+      setInfo(propClinicInfo);
+      return;
+    }
     getClinicInfoFromDb().then((dbInfo) => {
       setInfo(dbInfo);
     }).catch((err) => {
@@ -2376,7 +2406,7 @@ function AdminWebsiteTab() {
         setInfo(CLINIC_INFO);
       }
     });
-  }, []);
+  }, [propClinicInfo]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
