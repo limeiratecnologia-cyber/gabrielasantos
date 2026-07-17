@@ -12,7 +12,7 @@ export const IMAGES = {
 export const CLINIC_INFO = {
   therapistName: "Dra. Gabriela Santos",
   title: "Psicóloga Clínica (CRP 06/123456)",
-  tabTitle: "Serena Mente - Dra. Gabriela Santos",
+  tabTitle: "Dra. Gabriela Santos - Psicóloga Clínica",
   clinicLogo: "",
   faviconUrl: "",
   tagline: "Cultivando espaço para o auto-conhecimento, acolhimento e transformação pessoal.",

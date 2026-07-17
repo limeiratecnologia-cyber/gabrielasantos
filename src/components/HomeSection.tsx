@@ -77,7 +77,7 @@ export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propCli
           <img
             key={index}
             src={imgUrl}
-            alt={`Consultório Serena Mente ${index + 1}`}
+            alt={`Consultório ${clinicInfo.therapistName} ${index + 1}`}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
               index === currentSlide ? "opacity-100 z-0" : "opacity-0 -z-10"
             }`}
@@ -277,7 +277,7 @@ export default function HomeSection({ setActiveTab, logoSrc, clinicInfo: propCli
               <img src={logoSrc || clinicInfo.clinicLogo || IMAGES.logo} className="w-16 h-16 object-contain shrink-0 image-render-crisp" alt="Logo" />
               <div>
                 <h3 className="font-sans font-extrabold text-2xl sm:text-3xl tracking-tight leading-none">O Consultório</h3>
-                <span className="text-[10px] text-purple-400 tracking-widest font-bold uppercase mt-1 block">Serena Mente</span>
+                <span className="text-[10px] text-purple-400 tracking-widest font-bold uppercase mt-1 block">{clinicInfo.therapistName}</span>
               </div>
             </div>
             <p className="font-sans text-slate-300 text-sm leading-relaxed max-w-sm">

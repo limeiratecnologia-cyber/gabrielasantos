@@ -30,8 +30,13 @@ import {
   Lock, Unlock, Calendar, FileText, Check, X, Trash2, 
   Plus, Edit3, Save, Phone, Mail, MapPin, Clock, Award, 
   HelpCircle, CheckCircle, RefreshCw, LogOut, ArrowRight, ClipboardList, Upload,
-  ChevronLeft, ChevronRight, Globe, Users, Search, PlusCircle, Clipboard, Video, ShieldAlert, Sliders
+  ChevronLeft, ChevronRight, Globe, Users, Search, PlusCircle, Clipboard, Video, ShieldAlert, Sliders,
+  BarChart3, TrendingUp, Percent
 } from "lucide-react";
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
+  PieChart, Pie, Cell, LineChart, Line, AreaChart, Area 
+} from "recharts";
 
 interface AdminSectionProps {
   setActiveTab?: (tab: ActiveTab) => void;
@@ -43,7 +48,7 @@ export default function AdminSection({ setActiveTab, bookings, clinicInfo }: Adm
   const [password, setPassword] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [adminTab, setAdminTab] = useState<"agenda" | "patients" | "online" | "website" | "approaches" | "helppsi">("agenda");
+  const [adminTab, setAdminTab] = useState<"dashboard" | "agenda" | "patients" | "online" | "website" | "approaches" | "helppsi">("dashboard");
   const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
   const [preselectedRoom, setPreselectedRoom] = useState<{ roomCode: string; clientName: string } | null>(null);
 
@@ -168,6 +173,18 @@ export default function AdminSection({ setActiveTab, bookings, clinicInfo }: Adm
       {/* Admin Tabs */}
       <div className="flex border-b border-slate-100 overflow-x-auto pb-px">
         <button
+          onClick={() => setAdminTab("dashboard")}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
+            adminTab === "dashboard"
+              ? "border-purple-600 text-purple-700 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+          id="tab-admin-dashboard"
+        >
+          <BarChart3 className="w-4.5 h-4.5" />
+          Dashboard Clínico
+        </button>
+        <button
           onClick={() => setAdminTab("agenda")}
           className={`flex items-center gap-2 px-6 py-3.5 border-b-2 text-sm font-sans font-bold whitespace-nowrap transition-all cursor-pointer ${
             adminTab === "agenda"
@@ -243,6 +260,9 @@ export default function AdminSection({ setActiveTab, bookings, clinicInfo }: Adm
 
       {/* Tab Contents */}
       <div className="animate-fade-in">
+        {adminTab === "dashboard" && (
+          <AdminDashboardTab bookings={bookings} />
+        )}
         {adminTab === "agenda" && (
           <AdminAgendaTab 
             preselectedPatient={preselectedPatient}
@@ -272,6 +292,394 @@ export default function AdminSection({ setActiveTab, bookings, clinicInfo }: Adm
         {adminTab === "website" && <AdminWebsiteTab clinicInfo={clinicInfo} />}
         {adminTab === "approaches" && <AdminApproachesTab />}
         {adminTab === "helppsi" && <AdminHelpPsiTab />}
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   SUB-COMPONENT: ADMIN DASHBOARD TAB
+   ========================================================================== */
+interface AdminDashboardTabProps {
+  bookings?: Booking[];
+}
+
+function AdminDashboardTab({ bookings = [] }: AdminDashboardTabProps) {
+  // Helpers to parse PT-BR dates ("DD/MM/YYYY")
+  const parsePtBrDate = (dateStr: string): Date | null => {
+    if (!dateStr) return null;
+    const parts = dateStr.split("/");
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      return new Date(year, month, day);
+    }
+    const parsed = new Date(dateStr);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const getStartOfWeek = (date: Date): Date => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day; // Set to Sunday
+    const startOfWeek = new Date(d.setDate(diff));
+    startOfWeek.setHours(0, 0, 0, 0);
+    return startOfWeek;
+  };
+
+  // Group by week
+  const weekDataMap = new Map<number, { label: string; count: number }>();
+  bookings.forEach((b) => {
+    const d = parsePtBrDate(b.date);
+    if (d) {
+      const start = getStartOfWeek(d);
+      const ts = start.getTime();
+      const existing = weekDataMap.get(ts);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        const label = `Semana de ${start.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
+        weekDataMap.set(ts, { label, count: 1 });
+      }
+    }
+  });
+
+  const sortedWeeks = Array.from(weekDataMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([ts, val]) => ({
+      week: val.label,
+      "Agendamentos": val.count,
+    }));
+
+  // Fallback for empty data in week chart
+  const weekChartData = sortedWeeks.length > 0 ? sortedWeeks : [
+    { week: "Sem Dados", "Agendamentos": 0 }
+  ];
+
+  // Calculate Metrics
+  const total = bookings.length;
+  const completed = bookings.filter((b) => b.status === "completed").length;
+  const cancelled = bookings.filter((b) => b.status === "cancelled").length;
+  const scheduled = bookings.filter((b) => b.status === "scheduled").length;
+
+  const finalStateTotal = completed + cancelled;
+  const conversionRate = finalStateTotal > 0 ? (completed / finalStateTotal) * 100 : 100;
+
+  const pieData = [
+    { name: "Realizados", value: completed, color: "#10b981" },
+    { name: "Pendentes (Ativos)", value: scheduled, color: "#8b5cf6" },
+    { name: "Cancelados", value: cancelled, color: "#f43f5e" }
+  ].filter(item => item.value > 0);
+
+  const finalPieData = pieData.length > 0 ? pieData : [
+    { name: "Nenhum Agendamento", value: 1, color: "#e2e8f0" }
+  ];
+
+  // Most active clinical approaches
+  const approachCounts: { [key: string]: number } = {};
+  bookings.forEach((b) => {
+    const approachName = b.approach || "Geral";
+    approachCounts[approachName] = (approachCounts[approachName] || 0) + 1;
+  });
+  const sortedApproaches = Object.entries(approachCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  // Most active weekdays
+  const dayOfWeekCounts: { [key: string]: number } = {
+    "Domingo": 0, "Segunda-feira": 0, "Terça-feira": 0, "Quarta-feira": 0, 
+    "Quinta-feira": 0, "Sexta-feira": 0, "Sábado": 0
+  };
+  bookings.forEach((b) => {
+    const d = parsePtBrDate(b.date);
+    if (d) {
+      const dayName = d.toLocaleDateString("pt-BR", { weekday: "long" });
+      const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+      dayOfWeekCounts[capitalizedDay] = (dayOfWeekCounts[capitalizedDay] || 0) + 1;
+    }
+  });
+  const sortedDays = Object.entries(dayOfWeekCounts)
+    .filter(([_, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  return (
+    <div className="space-y-8" id="admin-dashboard-container">
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Total Bookings */}
+        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3 animate-fade-in" id="kpi-total">
+          <div className="flex items-center justify-between">
+            <span className="font-sans text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Geral</span>
+            <div className="p-2 bg-slate-50 text-slate-500 rounded-xl">
+              <Calendar className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <h4 className="font-sans font-black text-3xl text-slate-900 leading-none">{total}</h4>
+            <p className="font-sans text-[11px] text-slate-400 mt-1">Registros na base</p>
+          </div>
+        </div>
+
+        {/* Scheduled / Pending Bookings */}
+        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3 animate-fade-in" id="kpi-pending">
+          <div className="flex items-center justify-between">
+            <span className="font-sans text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pendentes (Ativos)</span>
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <h4 className="font-sans font-black text-3xl text-purple-600 leading-none">{scheduled}</h4>
+            <p className="font-sans text-[11px] text-slate-400 mt-1">Consultas agendadas</p>
+          </div>
+        </div>
+
+        {/* Completed Bookings */}
+        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3 animate-fade-in" id="kpi-completed">
+          <div className="flex items-center justify-between">
+            <span className="font-sans text-[10px] font-bold text-slate-400 uppercase tracking-widest">Realizados</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <CheckCircle className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <h4 className="font-sans font-black text-3xl text-emerald-600 leading-none">{completed}</h4>
+            <p className="font-sans text-[11px] text-slate-400 mt-1">Sessões concluídas</p>
+          </div>
+        </div>
+
+        {/* Cancelled Bookings */}
+        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3 animate-fade-in" id="kpi-cancelled">
+          <div className="flex items-center justify-between">
+            <span className="font-sans text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cancelados</span>
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+              <X className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <h4 className="font-sans font-black text-3xl text-rose-600 leading-none">{cancelled}</h4>
+            <p className="font-sans text-[11px] text-slate-400 mt-1">Sessões desmarcadas</p>
+          </div>
+        </div>
+
+        {/* Conversion Rate */}
+        <div className="bg-gradient-to-br from-purple-900 to-indigo-950 text-white rounded-2xl p-5 shadow-lg space-y-3 relative overflow-hidden animate-fade-in" id="kpi-conversion">
+          <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+            <Percent className="w-32 h-32 text-white" />
+          </div>
+          <div className="flex items-center justify-between relative z-10">
+            <span className="font-sans text-[10px] font-bold text-purple-200 uppercase tracking-widest">Taxa de Conversão</span>
+            <div className="p-2 bg-white/10 text-purple-200 rounded-xl">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="relative z-10">
+            <h4 className="font-sans font-black text-3xl text-white leading-none">
+              {conversionRate.toFixed(1)}%
+            </h4>
+            <p className="font-sans text-[11px] text-purple-200 mt-1">Realizados / Concluídos</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Weekly Area Chart */}
+        <div className="lg:col-span-8 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4" id="weekly-chart-box">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-sans font-extrabold text-slate-900 text-lg">Agendamentos por Semana</h3>
+              <p className="font-sans text-xs text-slate-400">Evolução do volume de consultas semanais criadas na plataforma.</p>
+            </div>
+            <span className="text-[10px] bg-purple-50 text-purple-600 font-bold px-3 py-1 rounded-full uppercase tracking-wider font-sans">
+              Semanal
+            </span>
+          </div>
+
+          <div className="h-[300px] w-full pt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={weekChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorAgendamentos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="week" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }} 
+                />
+                <YAxis 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }} 
+                  allowDecimals={false}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    color: '#fff',
+                    fontFamily: 'Inter',
+                    fontSize: '12px'
+                  }} 
+                  labelStyle={{ fontWeight: 'bold', color: '#a78bfa' }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="Agendamentos" 
+                  stroke="#8b5cf6" 
+                  strokeWidth={3} 
+                  fillOpacity={1} 
+                  fill="url(#colorAgendamentos)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Conversion / Status Distribution Chart */}
+        <div className="lg:col-span-4 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4 flex flex-col justify-between" id="distribution-chart-box">
+          <div>
+            <h3 className="font-sans font-extrabold text-slate-900 text-lg">Distribuição & Conversão</h3>
+            <p className="font-sans text-xs text-slate-400">Taxa de sucesso e aproveitamento de consultas.</p>
+          </div>
+
+          {/* Donut Chart with percentage inside */}
+          <div className="relative h-[180px] w-full flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={finalPieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {finalPieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '12px', 
+                    border: 'none', 
+                    color: '#fff',
+                    fontFamily: 'Inter',
+                    fontSize: '11px'
+                  }} 
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            
+            {/* Absolute percentage overlay in center */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="font-sans text-[10px] text-slate-400 uppercase font-bold tracking-widest">Conversão</span>
+              <span className="font-sans font-black text-2xl text-slate-950 leading-none mt-1">
+                {conversionRate.toFixed(0)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Indicators Legend list */}
+          <div className="space-y-2.5 pt-2">
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                <span className="font-sans text-slate-600 font-medium">Realizados</span>
+              </div>
+              <span className="font-mono font-bold text-slate-900">{completed}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-purple-500" />
+                <span className="font-sans text-slate-600 font-medium">Pendentes</span>
+              </div>
+              <span className="font-mono font-bold text-slate-900">{scheduled}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-rose-500" />
+                <span className="font-sans text-slate-600 font-medium">Cancelados</span>
+              </div>
+              <span className="font-mono font-bold text-slate-900">{cancelled}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Dynamic Insights Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Top Approaches */}
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4" id="insights-approaches">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+            <h3 className="font-sans font-extrabold text-slate-900 text-base">Abordagens Mais Procuradas</h3>
+          </div>
+          
+          {sortedApproaches.length === 0 ? (
+            <p className="font-sans text-xs text-slate-400 py-4 text-center">Nenhum dado disponível ainda.</p>
+          ) : (
+            <div className="space-y-3">
+              {sortedApproaches.map(([name, count], index) => {
+                const percentage = total > 0 ? (count / total) * 100 : 0;
+                return (
+                  <div key={name} className="space-y-1">
+                    <div className="flex justify-between text-xs font-sans">
+                      <span className="font-bold text-slate-800">{index + 1}. {name}</span>
+                      <span className="text-slate-500 font-mono">{count} ({percentage.toFixed(0)}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-50 h-2 rounded-full overflow-hidden">
+                      <div className="bg-purple-600 h-full rounded-full" style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Top Weekdays */}
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4" id="insights-weekdays">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <h3 className="font-sans font-extrabold text-slate-900 text-base">Dias de Maior Movimento</h3>
+          </div>
+          
+          {sortedDays.length === 0 ? (
+            <p className="font-sans text-xs text-slate-400 py-4 text-center">Nenhum dado disponível ainda.</p>
+          ) : (
+            <div className="space-y-3">
+              {sortedDays.map(([day, count], index) => {
+                const percentage = total > 0 ? (count / total) * 100 : 0;
+                return (
+                  <div key={day} className="space-y-1">
+                    <div className="flex justify-between text-xs font-sans">
+                      <span className="font-bold text-slate-800">{index + 1}. {day}</span>
+                      <span className="text-slate-500 font-mono">{count} ({percentage.toFixed(0)}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-50 h-2 rounded-full overflow-hidden">
+                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

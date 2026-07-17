@@ -326,6 +326,31 @@ export default function App() {
           </div>
         </main>
 
+        {/* Global Footer with Developer Credits */}
+        <footer className="border-t border-slate-100 bg-[#FCFDFD] py-6" id="app-footer">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
+            <p className="font-sans text-xs text-slate-400">
+              © {new Date().getFullYear()} {clinicInfo.therapistName}. Todos os direitos reservados.
+            </p>
+            <p className="font-sans text-xs text-slate-400 flex flex-wrap items-center gap-1.5 justify-center md:justify-end">
+              <span>Desenvolvido por</span>
+              <strong className="text-purple-600 font-bold">Sidney Limeira</strong>
+              <span className="text-slate-300">|</span>
+              <span>Analista de TI</span>
+              <span className="text-slate-300">|</span>
+              <a 
+                href="https://wa.me/5581994011440" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-emerald-600 hover:text-emerald-700 font-bold inline-flex items-center gap-1 transition"
+              >
+                <Phone className="w-3 h-3" />
+                whatsapp: 81 99401-1440
+              </a>
+            </p>
+          </div>
+        </footer>
+
         {/* HelpPsi Emergency Modal Overlay */}
         {showHelpPsiModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in" id="helppsi-modal">
