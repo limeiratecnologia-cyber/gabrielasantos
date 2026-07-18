@@ -1,7 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Booking } from "../types";
-import { getBookingsFromDb } from "../lib/firebaseService";
-import { Phone, Calendar, Clock, Video, MapPin, Search, AlertCircle, Sparkles, ArrowRight, User, Check, X } from "lucide-react";
+import { db } from "../lib/firebase";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { Phone, Calendar, Clock, Video, MapPin, Search, AlertCircle, Sparkles, ArrowRight, User, Check, X, Bell, Volume2 } from "lucide-react";
+
+interface AlertNotification {
+  id: string;
+  bookingId: string;
+  date: string;
+  timeSlot: string;
+  oldStatus: string;
+  newStatus: string;
+  patientName: string;
+  timestamp: Date;
+}
 
 export default function TrackingSection() {
   const [phoneQuery, setPhoneQuery] = useState("");
@@ -9,10 +21,167 @@ export default function TrackingSection() {
   const [hasSearched, setHasSearched] = useState(false);
   const [results, setResults] = useState<Booking[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Real-time tracking and notifications state
+  const [activePhone, setActivePhone] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<AlertNotification[]>([]);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+
+  const prevBookingsRef = useRef<Booking[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
 
   const cleanNumber = (num: string) => {
     return num.replace(/\D/g, "");
   };
+
+  const playNotificationSound = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      
+      // First chime (C5)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(523.25, ctx.currentTime);
+      gain1.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start();
+      osc1.stop(ctx.currentTime + 0.35);
+
+      // Second chime (E5) slightly delayed
+      setTimeout(() => {
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(659.25, ctx.currentTime);
+        gain2.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.start();
+        osc2.stop(ctx.currentTime + 0.45);
+      }, 120);
+    } catch (e) {
+      console.warn("Audio context fallback error:", e);
+    }
+  };
+
+  const translateStatus = (status: Booking["status"]) => {
+    switch (status) {
+      case "scheduled": return "Confirmado";
+      case "completed": return "Realizado";
+      case "cancelled": return "Cancelado";
+      default: return status || "Em análise";
+    }
+  };
+
+  const requestBellPermission = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      const perm = await Notification.requestPermission();
+      setNotificationPermission(perm);
+      if (perm === "granted") {
+        new Notification("Notificações Ativas!", {
+          body: "Você será avisado aqui quando o status da sua consulta mudar.",
+          silent: false
+        });
+        playNotificationSound();
+      }
+    }
+  };
+
+  // Setup Real-time listener when user submits the WhatsApp number
+  useEffect(() => {
+    if (!activePhone) return;
+
+    setIsLoading(true);
+    const queryDigits = cleanNumber(activePhone);
+    const q = query(collection(db, "bookings"), orderBy("date", "asc"));
+
+    // Prevent notifications on initial data fetch
+    let isFirstSnapshot = true;
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched: Booking[] = [];
+      snapshot.forEach((doc) => {
+        fetched.push({ id: doc.id, ...doc.data() } as Booking);
+      });
+
+      // Filter in-memory using matching digits
+      const matched = fetched.filter((b) => {
+        const dbDigits = cleanNumber(b.clientPhone || "");
+        return dbDigits.includes(queryDigits) || queryDigits.includes(dbDigits);
+      });
+
+      // Sort by date/time (newest first)
+      matched.sort((a, b) => {
+        const dateA = new Date(a.date.split("/").reverse().join("-") + "T" + (a.timeSlot || "00:00"));
+        const dateB = new Date(b.date.split("/").reverse().join("-") + "T" + (b.timeSlot || "00:00"));
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      // Verify if any booking has status changed
+      if (!isFirstSnapshot) {
+        matched.forEach((newBooking) => {
+          const oldBooking = prevBookingsRef.current.find((b) => b.id === newBooking.id);
+          // If booking previously existed and its status changed
+          if (oldBooking && oldBooking.status !== newBooking.status) {
+            const translatedOld = translateStatus(oldBooking.status);
+            const translatedNew = translateStatus(newBooking.status);
+
+            // 1. Play alert chime
+            playNotificationSound();
+
+            // 2. Add visual alert to list
+            const alertId = Math.random().toString(36).substring(2, 9);
+            const newAlert: AlertNotification = {
+              id: alertId,
+              bookingId: newBooking.id,
+              date: newBooking.date,
+              timeSlot: newBooking.timeSlot,
+              oldStatus: translatedOld,
+              newStatus: translatedNew,
+              patientName: newBooking.clientName,
+              timestamp: new Date(),
+            };
+            setAlerts((prev) => [newAlert, ...prev]);
+
+            // 3. Browser Push Notification
+            if (Notification.permission === "granted") {
+              try {
+                new Notification("Alteração no seu Agendamento!", {
+                  body: `Olá ${newBooking.clientName}, sua consulta de ${newBooking.date} às ${newBooking.timeSlot} foi alterada de "${translatedOld}" para "${translatedNew}".`,
+                  requireInteraction: true,
+                });
+              } catch (e) {
+                console.error("Erro ao disparar notificação do navegador:", e);
+              }
+            }
+          }
+        });
+      }
+
+      setResults(matched);
+      prevBookingsRef.current = matched;
+      isFirstSnapshot = false;
+      setIsLoading(false);
+      setHasSearched(true);
+    }, (err) => {
+      console.error("Erro ao escutar agendamentos em tempo real:", err);
+      setError("Ocorreu um erro na conexão em tempo real. Tentando reconectar...");
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [activePhone]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,33 +193,11 @@ export default function TrackingSection() {
     }
 
     setError(null);
-    setIsLoading(true);
+    setActivePhone(phoneQuery);
 
-    try {
-      // Fetch latest bookings
-      const allBookings = await getBookingsFromDb();
-      
-      // Filter in-memory by checking matching digits
-      const matched = allBookings.filter((b) => {
-        const dbDigits = cleanNumber(b.clientPhone || "");
-        // Match if query is contained or equal to make it friendly
-        return dbDigits.includes(queryDigits) || queryDigits.includes(dbDigits);
-      });
-
-      // Sort by date/time (newest or upcoming first)
-      matched.sort((a, b) => {
-        const dateA = new Date(a.date.split("/").reverse().join("-") + "T" + (a.timeSlot || "00:00"));
-        const dateB = new Date(b.date.split("/").reverse().join("-") + "T" + (b.timeSlot || "00:00"));
-        return dateB.getTime() - dateA.getTime(); // Newest first
-      });
-
-      setResults(matched);
-      setHasSearched(true);
-    } catch (err) {
-      console.error("Erro ao carregar agendamentos:", err);
-      setError("Ocorreu um erro ao carregar os dados. Tente novamente.");
-    } finally {
-      setIsLoading(false);
+    // Prompt for web notification permission gently if default
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      requestBellPermission();
     }
   };
 
@@ -204,21 +351,101 @@ export default function TrackingSection() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-4 sm:py-8 space-y-8 animate-fade-in" id="tracking-section-container">
+    <div className="max-w-2xl mx-auto py-4 sm:py-8 space-y-8 animate-fade-in relative" id="tracking-section-container">
       
+      {/* Floating In-App Notifications / Real-time Toast Alerts Container */}
+      {alerts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3.5 max-w-sm w-full px-4 sm:px-0" id="realtime-alerts-container">
+          {alerts.map((alert) => (
+            <div 
+              key={alert.id}
+              className="bg-white border-2 border-purple-500 rounded-3xl p-4.5 shadow-2xl shadow-purple-900/10 flex items-start gap-3.5 relative overflow-hidden animate-slide-in-up"
+              style={{
+                boxShadow: "0 20px 25px -5px rgb(107 33 168 / 0.1), 0 8px 10px -6px rgb(107 33 168 / 0.1)"
+              }}
+            >
+              {/* Highlight bar */}
+              <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-purple-600 animate-pulse" />
+              
+              <div className="p-2.5 rounded-2xl bg-purple-50 text-purple-600 shrink-0 mt-0.5">
+                <Bell className="w-5 h-5 animate-bounce" />
+              </div>
+
+              <div className="space-y-1 pr-6 flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-sans font-black text-xs text-purple-900 uppercase tracking-wider block">
+                    Atualização em Tempo Real!
+                  </span>
+                  <span className="text-[9px] font-sans text-slate-400">
+                    agora mesmo
+                  </span>
+                </div>
+                <p className="font-sans text-[11px] leading-relaxed text-slate-600">
+                  Olá <strong>{alert.patientName}</strong>, o status da sua consulta em <strong>{alert.date} ({alert.timeSlot})</strong> mudou:
+                </p>
+                <div className="flex items-center gap-2 pt-1 font-sans text-xs">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 line-through">
+                    {alert.oldStatus}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                  <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white font-extrabold shadow-sm">
+                    {alert.newStatus}
+                  </span>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button 
+                onClick={() => setAlerts((prev) => prev.filter((a) => a.id !== alert.id))}
+                className="absolute top-3 right-3 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                title="Fechar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Title block */}
       <div className="text-center space-y-3">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-sans font-extrabold tracking-widest text-purple-600 bg-purple-50 uppercase">
           <Sparkles className="w-3.5 h-3.5" />
-          Acompanhamento Online
+          Acompanhamento em Tempo Real
         </div>
         <h2 className="font-sans font-black text-2xl sm:text-3.5xl text-slate-950 tracking-tight leading-none">
           Acompanhar Agendamento
         </h2>
         <p className="font-sans text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-          Consulte o status, data, sala de atendimento ou orientações da sua consulta a qualquer momento.
+          Consulte o status, data, sala de atendimento ou orientações da sua consulta a qualquer momento com sincronização instantânea.
         </p>
       </div>
+
+      {/* Browser Notification Consent Bar */}
+      {notificationPermission !== "granted" && (
+        <div className="bg-purple-50/70 border border-purple-100/50 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-100 text-purple-700 rounded-xl">
+              <Bell className="w-4 h-4 shrink-0" />
+            </div>
+            <div className="space-y-0.5 text-center sm:text-left">
+              <h4 className="font-sans font-extrabold text-xs text-purple-950">
+                Deseja receber avisos de status?
+              </h4>
+              <p className="font-sans text-[10px] text-purple-700/80 leading-normal">
+                Ative as notificações do navegador para receber alertas sonoros e visuais caso seu status mude.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={requestBellPermission}
+            className="bg-purple-600 hover:bg-purple-700 text-white font-sans font-extrabold text-[10px] tracking-wider uppercase px-4 py-2 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-1.5 shrink-0"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            Ativar Alertas
+          </button>
+        </div>
+      )}
 
       {/* Search Box */}
       <div className="bg-white border border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm">
