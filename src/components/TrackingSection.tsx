@@ -26,12 +26,20 @@ export default function TrackingSection() {
   const [activePhone, setActivePhone] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<AlertNotification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+  const [notificationStatusMsg, setNotificationStatusMsg] = useState<{
+    type: "success" | "error" | "info" | null;
+    text: string | null;
+  }>({ type: null, text: null });
 
   const prevBookingsRef = useRef<Booking[]>([]);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      setNotificationPermission(Notification.permission);
+    if (typeof window !== "undefined") {
+      if ("Notification" in window) {
+        setNotificationPermission(Notification.permission);
+      } else {
+        setNotificationPermission("denied"); // Treat as unsupported/denied for UI
+      }
     }
   }, []);
 
@@ -85,16 +93,53 @@ export default function TrackingSection() {
   };
 
   const requestBellPermission = async () => {
-    if (typeof window !== "undefined" && "Notification" in window) {
+    setNotificationStatusMsg({ type: null, text: null });
+
+    // Fallback if browser doesn't support the Notification API (like many mobile browsers or inside specific iframe sandboxes)
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotificationStatusMsg({
+        type: "info",
+        text: "Notificações do navegador não são suportadas neste dispositivo, mas ativamos os Alertas Sonoros e Visuais diretamente nesta página!",
+      });
+      playNotificationSound();
+      return;
+    }
+
+    try {
+      // In some sandboxed iFrames, calling requestPermission can throw an error
       const perm = await Notification.requestPermission();
       setNotificationPermission(perm);
+
       if (perm === "granted") {
-        new Notification("Notificações Ativas!", {
-          body: "Você será avisado aqui quando o status da sua consulta mudar.",
-          silent: false
+        setNotificationStatusMsg({
+          type: "success",
+          text: "Prontinho! Notificações do sistema ativadas com sucesso. Você será notificado instantaneamente.",
+        });
+        
+        try {
+          new Notification("Notificações Ativas! 🔔", {
+            body: "A partir de agora você receberá alertas sobre mudanças de status da sua consulta.",
+            silent: false,
+          });
+        } catch (e) {
+          console.warn("Could not dispatch initial push notification", e);
+        }
+        playNotificationSound();
+      } else if (perm === "denied") {
+        setNotificationStatusMsg({
+          type: "error",
+          text: "As notificações do navegador estão bloqueadas. Para receber avisos em segundo plano, clique no ícone de cadeado na barra de endereços do seu navegador e mude a permissão de Notificações para 'Permitir'. Mantemos os alertas sonoros ativos nesta aba!",
         });
         playNotificationSound();
       }
+    } catch (error) {
+      console.warn("Erro ao pedir permissão de notificação:", error);
+      // Fallback for iFrame restrictions
+      setNotificationStatusMsg({
+        type: "success",
+        text: "Alertas Visuais e Sonoros ativados com sucesso para esta sessão do navegador!",
+      });
+      playNotificationSound();
     }
   };
 
@@ -421,31 +466,84 @@ export default function TrackingSection() {
         </p>
       </div>
 
-      {/* Browser Notification Consent Bar */}
-      {notificationPermission !== "granted" && (
-        <div className="bg-purple-50/70 border border-purple-100/50 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-100 text-purple-700 rounded-xl">
-              <Bell className="w-4 h-4 shrink-0" />
+      {/* Browser Notification Consent Bar & Status Messages */}
+      <div className="space-y-3" id="notification-settings-wrapper">
+        {notificationPermission !== "granted" ? (
+          <div className="bg-purple-50/70 border border-purple-100/50 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-purple-100 text-purple-700 rounded-xl shrink-0">
+                <Bell className="w-5 h-5 shrink-0" />
+              </div>
+              <div className="space-y-0.5 text-center sm:text-left">
+                <h4 className="font-sans font-extrabold text-xs sm:text-sm text-purple-950">
+                  Deseja receber avisos de status?
+                </h4>
+                <p className="font-sans text-[10px] sm:text-[11px] text-purple-700/80 leading-relaxed max-w-md">
+                  Ative as notificações do sistema para ser avisado por som e janelas push assim que houver alteração na sua consulta.
+                </p>
+              </div>
             </div>
-            <div className="space-y-0.5 text-center sm:text-left">
-              <h4 className="font-sans font-extrabold text-xs text-purple-950">
-                Deseja receber avisos de status?
-              </h4>
-              <p className="font-sans text-[10px] text-purple-700/80 leading-normal">
-                Ative as notificações do navegador para receber alertas sonoros e visuais caso seu status mude.
+            <button
+              onClick={requestBellPermission}
+              className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-sans font-extrabold text-[10px] tracking-wider uppercase px-4.5 py-3 rounded-xl transition shadow-md shadow-purple-600/10 cursor-pointer flex items-center justify-center gap-1.5 shrink-0 active:scale-[0.98]"
+            >
+              <Volume2 className="w-4 h-4" />
+              Ativar Alertas
+            </button>
+          </div>
+        ) : (
+          <div className="bg-emerald-50/60 border border-emerald-100/50 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+                <Check className="w-4 h-4 shrink-0" />
+              </div>
+              <div>
+                <h4 className="font-sans font-bold text-xs text-emerald-950 flex items-center gap-1.5">
+                  Notificações Ativas
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
+                </h4>
+                <p className="font-sans text-[10px] text-emerald-700/80 leading-none">
+                  Você receberá avisos sonoros e notificações em tempo real.
+                </p>
+              </div>
+            </div>
+            <span className="text-[9px] font-sans font-black uppercase text-emerald-700 tracking-wider bg-emerald-100/60 px-2.5 py-1 rounded-full">
+              Ativo
+            </span>
+          </div>
+        )}
+
+        {/* Dynamic feedback messages */}
+        {notificationStatusMsg.text && (
+          <div 
+            className={`p-4 rounded-2xl border text-xs font-sans leading-relaxed flex items-start gap-3 transition-all animate-fade-in ${
+              notificationStatusMsg.type === "success" 
+                ? "bg-emerald-50 border-emerald-100 text-emerald-850"
+                : notificationStatusMsg.type === "error"
+                ? "bg-rose-50 border-rose-100 text-rose-850"
+                : "bg-purple-50 border-purple-100 text-purple-850"
+            }`}
+          >
+            <div className="mt-0.5 shrink-0">
+              {notificationStatusMsg.type === "success" ? (
+                <Check className="w-4 h-4 text-emerald-600" />
+              ) : notificationStatusMsg.type === "error" ? (
+                <AlertCircle className="w-4 h-4 text-rose-500" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-purple-600" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <p className="font-bold uppercase tracking-wider text-[10px]">
+                {notificationStatusMsg.type === "success" ? "Sucesso" : notificationStatusMsg.type === "error" ? "Configuração Requerida" : "Informação"}
+              </p>
+              <p className="text-slate-600 leading-relaxed font-medium">
+                {notificationStatusMsg.text}
               </p>
             </div>
           </div>
-          <button
-            onClick={requestBellPermission}
-            className="bg-purple-600 hover:bg-purple-700 text-white font-sans font-extrabold text-[10px] tracking-wider uppercase px-4 py-2 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-1.5 shrink-0"
-          >
-            <Volume2 className="w-3.5 h-3.5" />
-            Ativar Alertas
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Search Box */}
       <div className="bg-white border border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm">
