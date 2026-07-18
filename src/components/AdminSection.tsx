@@ -2225,8 +2225,8 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
               )}
             </div>
 
-            {/* Table of patients */}
-            <div className="overflow-x-auto">
+            {/* Table of patients - Desktop View */}
+            <div className="hidden md:block overflow-x-auto">
               {filteredPatients.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
                   Nenhum paciente cadastrado correspondente encontrado.
@@ -2302,6 +2302,76 @@ function AdminPatientsTab({ onScheduleConsultation }: AdminPatientsTabProps) {
                     })}
                   </tbody>
                 </table>
+              )}
+            </div>
+
+            {/* Card list of patients - Mobile View */}
+            <div className="block md:hidden space-y-3.5">
+              {filteredPatients.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  Nenhum paciente cadastrado correspondente encontrado.
+                </div>
+              ) : (
+                filteredPatients.map((p) => {
+                  const isCurrentlySelected = selectedPatient?.id === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                        isCurrentlySelected
+                          ? "bg-purple-50/50 border-purple-200 shadow-sm"
+                          : "bg-white border-slate-100 hover:border-purple-100"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-extrabold text-slate-900 text-sm">{p.name}</div>
+                          <div className="text-[10px] text-slate-400 font-sans mt-0.5">
+                            Adicionado em: {p.createdAt || "Paciente"}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-1 text-[11px] text-slate-500 border-t border-slate-50 pt-2 font-sans">
+                        <span className="truncate">📧 {p.email}</span>
+                        <span>📱 {p.phone}</span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-1.5 pt-2 border-t border-slate-50">
+                        <button
+                          onClick={() => setSelectedPatient(p)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex-1 text-center ${
+                            isCurrentlySelected
+                              ? "bg-purple-600 text-white shadow-sm"
+                              : "bg-purple-50 hover:bg-purple-100 text-purple-700"
+                          }`}
+                        >
+                          Ver Prontuário
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onScheduleConsultation?.(p)}
+                          className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100/60 text-indigo-700 font-bold px-3 py-2 rounded-xl text-xs transition-all cursor-pointer inline-flex items-center justify-center gap-1 flex-1"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          Agendar
+                        </button>
+                        <button
+                          onClick={() => handleEditPatientInit(p)}
+                          className="bg-slate-50 hover:bg-slate-100 border border-slate-150 text-slate-600 p-2 rounded-xl transition cursor-pointer inline-flex items-center justify-center min-w-[36px] min-h-[36px]"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePatient(p.id)}
+                          className="bg-slate-50 hover:bg-rose-50 border border-slate-150 text-slate-400 hover:text-rose-600 p-2 rounded-xl transition cursor-pointer inline-flex items-center justify-center min-w-[36px] min-h-[36px]"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -3992,78 +4062,150 @@ function AdminHelpPsiTab() {
           <p className="text-xs text-slate-400 font-sans mt-1">Os pacientes que usarem o botão SOS HelpPsi aparecerão listados aqui.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px]">
-            <thead>
-              <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">
-                <th className="py-4">Paciente</th>
-                <th className="py-4">Contato / WhatsApp</th>
-                <th className="py-4">Data do Chamado</th>
-                <th className="py-4">Status</th>
-                <th className="py-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {emergencies.map((e) => (
-                <tr key={e.id} className={`hover:bg-slate-50/50 transition ${e.status === 'pending' ? 'bg-rose-50/10' : ''}`}>
-                  <td className="py-4 pr-3 font-bold text-slate-900 font-sans">{e.patientName}</td>
-                  <td className="py-4 pr-3 font-mono font-bold text-slate-600">
-                    <span className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      {e.whatsapp}
-                    </span>
-                  </td>
-                  <td className="py-4 pr-3 font-sans text-slate-500">{e.createdAt}</td>
-                  <td className="py-4 pr-3">
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider font-sans ${
+        <>
+          {/* Desktop view */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[600px]">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">
+                  <th className="py-4">Paciente</th>
+                  <th className="py-4">Contato / WhatsApp</th>
+                  <th className="py-4">Data do Chamado</th>
+                  <th className="py-4">Status</th>
+                  <th className="py-4 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                {emergencies.map((e) => (
+                  <tr key={e.id} className={`hover:bg-slate-50/50 transition ${e.status === 'pending' ? 'bg-rose-50/10' : ''}`}>
+                    <td className="py-4 pr-3 font-bold text-slate-900 font-sans">{e.patientName}</td>
+                    <td className="py-4 pr-3 font-mono font-bold text-slate-600">
+                      <span className="flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                        {e.whatsapp}
+                      </span>
+                    </td>
+                    <td className="py-4 pr-3 font-sans text-slate-500">{e.createdAt}</td>
+                    <td className="py-4 pr-3">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider font-sans ${
+                        e.status === "pending"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-emerald-100 text-emerald-800"
+                      }`}>
+                        {e.status === "pending" ? "Pendente" : "Resolvido"}
+                      </span>
+                    </td>
+                    <td className="py-4 text-right">
+                      <div className="flex items-center justify-end gap-2.5">
+                        <button
+                          onClick={() => {
+                            const formattedWhatsapp = e.whatsapp.replace(/\D/g, "");
+                            const text = encodeURIComponent(`Olá ${e.patientName}, sou a Dra. Gabriela. Recebi o seu chamado de SOS HelpPsi no site. Estou entrando em contato para conversarmos imediatamente.`);
+                            window.open(`https://wa.me/${formattedWhatsapp}?text=${text}`, "_blank");
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
+                          title="Entrar em contato via WhatsApp"
+                        >
+                          <Phone className="w-3 h-3" />
+                          Chamar
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleStatus(e)}
+                          className={`font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg border transition cursor-pointer ${
+                            e.status === "pending"
+                              ? "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                              : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+                          }`}
+                          title={e.status === "pending" ? "Marcar como Resolvido" : "Reabrir Chamado"}
+                        >
+                          {e.status === "pending" ? "Resolver" : "Reabrir"}
+                        </button>
+
+                        <button
+                          onClick={() => handleDelete(e.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile view */}
+          <div className="block md:hidden space-y-3.5">
+            {emergencies.map((e) => (
+              <div
+                key={e.id}
+                className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                  e.status === "pending"
+                    ? "bg-rose-50/20 border-rose-100 shadow-sm"
+                    : "bg-white border-slate-100"
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-extrabold text-slate-900 text-sm">{e.patientName}</div>
+                    <div className="text-[10px] text-slate-400 font-sans mt-0.5">
+                      Chamado em: {e.createdAt}
+                    </div>
+                  </div>
+                  <div>
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-wider font-sans ${
                       e.status === "pending"
                         ? "bg-rose-100 text-rose-800"
                         : "bg-emerald-100 text-emerald-800"
                     }`}>
                       {e.status === "pending" ? "Pendente" : "Resolvido"}
                     </span>
-                  </td>
-                  <td className="py-4 text-right">
-                    <div className="flex items-center justify-end gap-2.5">
-                      <button
-                        onClick={() => {
-                          const formattedWhatsapp = e.whatsapp.replace(/\D/g, "");
-                          const text = encodeURIComponent(`Olá ${e.patientName}, sou a Dra. Gabriela. Recebi o seu chamado de SOS HelpPsi no site. Estou entrando em contato para conversarmos imediatamente.`);
-                          window.open(`https://wa.me/${formattedWhatsapp}?text=${text}`, "_blank");
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
-                        title="Entrar em contato via WhatsApp"
-                      >
-                        <Phone className="w-3 h-3" />
-                        Chamar
-                      </button>
+                  </div>
+                </div>
 
-                      <button
-                        onClick={() => handleToggleStatus(e)}
-                        className={`font-sans font-bold text-[10px] px-3 py-1.5 rounded-lg border transition cursor-pointer ${
-                          e.status === "pending"
-                            ? "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
-                            : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
-                        }`}
-                        title={e.status === "pending" ? "Marcar como Resolvido" : "Reabrir Chamado"}
-                      >
-                        {e.status === "pending" ? "Resolver" : "Reabrir"}
-                      </button>
+                <div className="text-[11px] text-slate-600 font-mono font-bold flex items-center gap-1.5 pt-2 border-t border-slate-50">
+                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  {e.whatsapp}
+                </div>
 
-                      <button
-                        onClick={() => handleDelete(e.id)}
-                        className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-50">
+                  <button
+                    onClick={() => {
+                      const formattedWhatsapp = e.whatsapp.replace(/\D/g, "");
+                      const text = encodeURIComponent(`Olá ${e.patientName}, sou a Dra. Gabriela. Recebi o seu chamado de SOS HelpPsi no site. Estou entrando em contato para conversarmos imediatamente.`);
+                      window.open(`https://wa.me/${formattedWhatsapp}?text=${text}`, "_blank");
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 flex-1 cursor-pointer"
+                  >
+                    <Phone className="w-3.5 h-3.5 shrink-0" />
+                    Chamar
+                  </button>
+
+                  <button
+                    onClick={() => handleToggleStatus(e)}
+                    className={`font-sans font-bold text-xs px-4 py-2.5 rounded-xl border transition cursor-pointer flex-1 text-center ${
+                      e.status === "pending"
+                        ? "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                        : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+                    }`}
+                  >
+                    {e.status === "pending" ? "Resolver" : "Reabrir"}
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(e.id)}
+                    className="bg-slate-50 hover:bg-rose-50 border border-slate-150 text-slate-400 hover:text-rose-600 p-2 rounded-xl transition cursor-pointer inline-flex items-center justify-center min-w-[36px] min-h-[36px]"
+                  >
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

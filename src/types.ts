@@ -89,4 +89,4 @@ export interface Approach {
   quote: string;
 }
 
-export type ActiveTab = "home" | "approaches" | "booking" | "online" | "admin";
+export type ActiveTab = "hub" | "home" | "approaches" | "booking" | "online" | "admin" | "tracking";

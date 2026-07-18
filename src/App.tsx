@@ -11,15 +11,34 @@ import ApproachesSection from "./components/ApproachesSection";
 import BookingSection from "./components/BookingSection";
 import OnlineConsultationSection from "./components/OnlineConsultationSection";
 import AdminSection from "./components/AdminSection";
+import MobileHub from "./components/MobileHub";
+import TrackingSection from "./components/TrackingSection";
 import { CLINIC_INFO, IMAGES } from "./data";
 import { getClinicInfoFromDb, saveHelpPsiEmergencyToDb } from "./lib/firebaseService";
-import { Phone, ShieldAlert, X, MessageSquare, Check, AlertCircle, Heart } from "lucide-react";
+import { Phone, ShieldAlert, X, MessageSquare, Check, AlertCircle, Heart, ChevronLeft } from "lucide-react";
 import { db } from "./lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("home");
-  const [displayedTab, setDisplayedTab] = useState<ActiveTab>("home");
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 768 ? "hub" : "home";
+    }
+    return "home";
+  });
+  const [displayedTab, setDisplayedTab] = useState<ActiveTab>(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 768 ? "hub" : "home";
+    }
+    return "home";
+  });
   const [clinicInfo, setClinicInfo] = useState<any>(() => {
     const saved = localStorage.getItem("serenamente_clinic_info");
     if (saved) {
@@ -87,15 +106,32 @@ export default function App() {
     }
   };
 
-  // Splash screen duration of 2 seconds
+  // Splash screen duration of 350ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSplashLoading(false);
-    }, 2000);
+    }, 350);
     return () => clearTimeout(timer);
   }, []);
 
-  // Sync displayedTab with activeTab with a 2-second transition loader when changing tabs
+  // Listen to screen size changes
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // If isMobile is false (desktop/PC view) and activeTab is "hub", switch to "home"
+  useEffect(() => {
+    if (!isMobile && activeTab === "hub") {
+      setActiveTab("home");
+    }
+  }, [isMobile, activeTab]);
+
+  // Sync displayedTab with activeTab with a 350ms transition loader when changing tabs
   useEffect(() => {
     if (isSplashLoading) {
       setDisplayedTab(activeTab);
@@ -107,12 +143,12 @@ export default function App() {
       const timer = setTimeout(() => {
         setDisplayedTab(activeTab);
         setIsTransitionLoading(false);
-      }, 2000);
+      }, 350);
       return () => clearTimeout(timer);
     }
   }, [activeTab, isSplashLoading, displayedTab]);
 
-  // Handle high-precision 2-second percentage countdown indicator (from 0% to 100%)
+  // Handle high-precision 350ms percentage countdown indicator (from 0% to 100%)
   useEffect(() => {
     if (isSplashLoading || isTransitionLoading) {
       setProgressPercent(0);
@@ -122,9 +158,9 @@ export default function App() {
             clearInterval(interval);
             return 100;
           }
-          return prev + 1;
+          return prev + 1.5; // step up slightly faster to match 350ms
         });
-      }, 20); // 20ms * 100 steps = 2000ms (2 seconds)
+      }, 5); // 5ms per step
       return () => clearInterval(interval);
     }
   }, [isSplashLoading, isTransitionLoading]);
@@ -222,6 +258,10 @@ export default function App() {
     };
 
     switch (displayedTab) {
+      case "hub":
+        return <MobileHub setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />;
+      case "tracking":
+        return <TrackingSection />;
       case "home":
         return <HomeSection setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} onTriggerHelpPsi={handleTriggerHelpPsi} />;
       case "approaches":
@@ -316,8 +356,35 @@ export default function App() {
       )}
 
       <div className="min-h-screen bg-[#FCFDFD] flex flex-col font-sans selection:bg-purple-600/10 selection:text-purple-900" id="app-root">
-        {/* Aesthetic Header / Navigation */}
-        <AestheticHeader activeTab={activeTab} setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />
+        {/* Aesthetic Header / Navigation (Desktop vs Mobile) */}
+        {!isMobile ? (
+          <AestheticHeader activeTab={activeTab} setActiveTab={setActiveTab} logoSrc={pngLogo} clinicInfo={clinicInfo} />
+        ) : activeTab !== "hub" ? (
+          <div className="sticky top-0 z-50 bg-[#FCFDFD]/95 backdrop-blur-md border-b border-slate-100 h-16 px-4 flex items-center justify-between" id="mobile-sub-header">
+            <button 
+              onClick={() => setActiveTab("hub")} 
+              className="flex items-center gap-1.5 text-purple-600 hover:text-purple-700 font-extrabold text-sm font-sans transition-all cursor-pointer bg-purple-50/60 active:bg-purple-100/85 px-3 py-2 rounded-xl border border-purple-100/50"
+              id="mobile-back-btn"
+            >
+              <ChevronLeft className="w-4 h-4 text-purple-600 shrink-0" />
+              Início
+            </button>
+            <span className="font-sans font-black text-sm text-slate-800 tracking-tight text-center truncate max-w-[180px]">
+              {activeTab === "home" ? "A Clínica" :
+               activeTab === "approaches" ? "Abordagens" :
+               activeTab === "online" ? "Consulta Online" :
+               activeTab === "booking" ? "Agendamento" :
+               activeTab === "tracking" ? "Acompanhar" :
+               activeTab === "admin" ? "Painel Psi" : ""}
+            </span>
+            <img 
+              src={pngLogo || clinicInfo.clinicLogo || IMAGES.logo} 
+              alt="Logo" 
+              className="w-9 h-9 object-contain rounded-xl p-0.5 bg-white border border-slate-100 shadow-sm"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        ) : null}
 
         {/* Main Content Area */}
         <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
